@@ -1,0 +1,1611 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vaitty — System Architecture</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── FIX: sin overflow:hidden en html/body — scroll natural ── */
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+      background: #060d1a;
+      color: #e2e8f0;
+    }
+    #root { min-height: 100vh; }
+
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+
+    /* ── Animations ── */
+    @keyframes flow    { to { stroke-dashoffset: -24; } }
+    @keyframes flowRev { to { stroke-dashoffset:  24; } }
+    @keyframes busGlow { 0%,100%{ box-shadow:0 0 10px #38bdf833,inset 0 0 10px #38bdf811; }
+                             50%{ box-shadow:0 0 22px #38bdf855,inset 0 0 18px #38bdf822; } }
+    @keyframes busLine { to { stroke-dashoffset: -32; } }
+    @keyframes fadeUp  { from{ opacity:0; transform:translateY(8px); } to{ opacity:1; transform:translateY(0); } }
+    @keyframes popIn   { from{ opacity:0; transform:scale(.96); } to{ opacity:1; transform:scale(1); } }
+
+    .flow-a { stroke-dasharray:8 4; animation:flow    2s   linear infinite; }
+    .flow-b { stroke-dasharray:6 3; animation:flow    1.5s linear infinite; }
+    .flow-c { stroke-dasharray:4 4; animation:flowRev 2.5s linear infinite; }
+    .flow-d { stroke-dasharray:5 5; animation:flow    3s   linear infinite; opacity:.4; }
+
+    /* ── Sticky header & tabs ── */
+    .app-header {
+      position: sticky; top: 0; z-index: 200;
+      background: #060d1a;
+      border-bottom: 1px solid #1e293b;
+      padding: 10px 20px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .tab-bar {
+      position: sticky; top: 52px; z-index: 199;
+      background: #0a0f1e;
+      border-bottom: 1px solid #1e293b;
+      display: flex; gap: 2px; padding: 6px 10px;
+      overflow-x: auto;
+    }
+    .tab-btn {
+      display: flex; align-items: center; gap: 5px;
+      padding: 5px 13px; border: none; background: transparent;
+      color: #64748b; font-size: 12px; font-weight: 600;
+      border-radius: 8px; cursor: pointer; white-space: nowrap;
+      transition: all .18s ease;
+    }
+    .tab-btn:hover  { background:#1e293b; color:#94a3b8; }
+    .tab-btn.active { background:#1e3a5f; color:#38bdf8; }
+
+    /* ── Content area: natural scroll ── */
+    .tab-content { padding: 16px 20px 40px; animation: fadeUp .25s ease; }
+
+    /* ── Graph container ── */
+    .graph-wrap {
+      position: relative;
+      width: 100%; min-height: 400px; height: 460px;
+      overflow: visible;  /* FIX: no hidden overflow */
+    }
+
+    /* FIX: SVG as visual layer only, pointer-events:none so HTML nodes get clicks */
+    .graph-svg {
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+    }
+
+    /* ── HTML div nodes (REPLACES SVG groups — FIX for click reliability) ── */
+    .graph-node {
+      position: absolute;
+      border-radius: 10px;
+      background: #131f35;
+      border: 1.5px solid;
+      cursor: pointer;
+      transition: transform .18s ease, filter .18s ease, border-color .18s ease;
+      display: flex; align-items: center; gap: 0;
+      overflow: hidden;
+      user-select: none;
+    }
+    .graph-node:hover { transform: translateY(-2px) scale(1.02); filter: brightness(1.15); }
+    .graph-node.selected { filter: brightness(1.2); }
+
+    .node-icon-area {
+      width: 44px; min-width: 44px; height: 100%;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      border-radius: 8px; margin: 5px 0 5px 5px;
+    }
+    .node-text-area { flex: 1; padding: 5px 6px 5px 7px; min-width: 0; }
+    .node-title { font-size: 9.5px; font-weight: 800; color: #e2e8f0; line-height: 1.3; }
+    .node-status { font-size: 8.5px; margin-top: 2px; }
+    .node-status-dot {
+      position: absolute; top: 7px; right: 7px;
+      width: 8px; height: 8px; border-radius: 50%;
+    }
+
+    /* ── Event Bus ── */
+    .event-bus {
+      position: absolute;
+      border-radius: 9px;
+      border: 1.5px solid #38bdf877;
+      background: #0d1a2e;
+      display: flex; align-items: center; justify-content: center;
+      gap: 8px;
+      animation: busGlow 2.5s ease-in-out infinite;
+    }
+    .bus-label {
+      font-size: 11px; font-weight: 800;
+      color: #38bdf8; letter-spacing: .12em;
+    }
+
+    /* ── Detail panel ── */
+    .detail-panel {
+      margin-top: 14px;
+      border-radius: 14px; padding: 16px;
+      animation: popIn .22s ease;
+    }
+    .detail-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1.2fr;
+      gap: 14px;
+      margin-top: 12px;
+    }
+
+    /* ── Cards ── */
+    .card { background: #1e293b; border-radius: 12px; padding: 14px; }
+    .card-border { background: #1e293b; border-radius: 12px; padding: 14px; border-left: 3px solid; }
+
+    /* ── UI Primitives ── */
+    .badge {
+      display: inline-flex; align-items: center;
+      border-radius: 6px; padding: 2px 8px;
+      font-size: 10px; font-weight: 700; white-space: nowrap;
+    }
+    .tag {
+      display: inline-block; border-radius: 4px; padding: 1px 7px;
+      font-size: 10px; font-weight: 600; white-space: nowrap;
+    }
+    .section-title {
+      font-size: 10px; font-weight: 800; letter-spacing: .08em;
+      text-transform: uppercase; margin-bottom: 6px;
+    }
+    .divider { height: 1px; background: #1e293b; margin: 8px 0; }
+    .bullet { display: flex; align-items: flex-start; gap: 7px; padding: 2px 0; }
+    .bullet-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+
+    /* ── Portals callout ── */
+    .portals-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+    @media (max-width:700px) { .portals-grid { grid-template-columns: 1fr; } }
+
+    /* ── Flow steps ── */
+    .flow-step { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 3px; }
+    .fstep-icon { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; }
+    .fstep-dot { border-radius: 50%; padding: 5px; border: 2px solid; }
+    .fstep-line { width: 2px; height: 14px; margin-top: 2px; }
+
+    /* ── 2-col grid helpers ── */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+    .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; }
+    @media (max-width:900px) { .grid-3 { grid-template-columns: 1fr 1fr; } .detail-grid { grid-template-columns: 1fr; } }
+    @media (max-width:650px) { .grid-2 { grid-template-columns: 1fr; } .grid-4 { grid-template-columns: 1fr 1fr; } }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState } = React;
+
+/* ══════════ COLORS ══════════ */
+const C = {
+  product:"#0ea5e9", distribution:"#8b5cf6", service:"#f59e0b",
+  omni:"#10b981",    provider:"#ef4444",     finance:"#ec4899",
+  identity:"#6366f1",quotation:"#f97316",    sales:"#a855f7",
+  bg:"#060d1a", card:"#1e293b",
+  text:"#e2e8f0", muted:"#64748b", muted2:"#94a3b8",
+  accent:"#38bdf8", border:"#1e293b",
+  green:"#22c55e", yellow:"#eab308", red:"#ef4444",
+};
+
+/* ══════════ ICONS ══════════ */
+const mkI = (...ds) => ({ size=14, color='currentColor', style={} }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
+    style={{ flexShrink:0, ...style }}>
+    {ds.map((d,i) => <path key={i} d={d}/>)}
+  </svg>
+);
+const I = {
+  Building2:    mkI("M6 22V4a2 2 0 012-2h8a2 2 0 012 2v18","M2 22h20","M15 22v-4a3 3 0 00-6 0v4"),
+  Shield:       mkI("M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"),
+  Users:        mkI("M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2","M23 21v-2a4 4 0 00-3-3.87","M16 3.13a4 4 0 010 7.75"),
+  Wrench:       mkI("M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"),
+  Wallet:       mkI("M21 12V7H5a2 2 0 010-4h14v4","M3 5v14a2 2 0 002 2h16v-5","M21 12a2 2 0 110 4 2 2 0 010-4"),
+  CreditCard:   mkI("M1 4h22v16H1z","M1 10h22"),
+  Phone:        mkI("M22 16.92v3a2 2 0 01-2.18 2A19.79 19.79 0 013.07 10.8 2 2 0 012 0h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 14.92"),
+  ChevronRight: mkI("M9 18l6-6-6-6"),
+  ChevronDown:  mkI("M6 9l6 6 6-6"),
+  Layers:       mkI("M12 2L2 7l10 5 10-5-10-5","M2 17l10 5 10-5","M2 12l10 5 10-5"),
+  Settings:     mkI("M12 20a8 8 0 100-16 8 8 0 000 16z","M12 14a2 2 0 100-4 2 2 0 000 4"),
+  Globe:        mkI("M12 2a10 10 0 100 20A10 10 0 0012 2z","M2 12h20","M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"),
+  Home:         mkI("M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z","M9 22V12h6v10"),
+  Zap:          mkI("M13 2L3 14h9l-1 8 10-12h-9l1-8z"),
+  AlertTriangle:mkI("M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z","M12 9v4","M12 17h.01"),
+  CheckCircle:  mkI("M22 11.08V12a10 10 0 11-5.93-9.14","M22 4L12 14.01l-3-3"),
+  Clock:        mkI("M12 2a10 10 0 100 20A10 10 0 0012 2z","M12 6v6l4 2"),
+  DollarSign:   mkI("M12 1v22","M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"),
+  BarChart3:    mkI("M18 20V10","M12 20V4","M6 20v-6"),
+  Database:     mkI("M12 2a9 3 0 110 6A9 3 0 0112 2z","M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5","M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"),
+  Lock:         mkI("M19 11H5a2 2 0 00-2 2v7a2 2 0 002 2h14a2 2 0 002-2v-7a2 2 0 00-2-2z","M7 11V7a5 5 0 0110 0v4"),
+  MessageSquare:mkI("M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"),
+  Smartphone:   mkI("M17 2H7a2 2 0 00-2 2v16a2 2 0 002 2h10a2 2 0 002-2V4a2 2 0 00-2-2z","M12 18h.01"),
+  Monitor:      mkI("M23 4a2 2 0 00-2-2H3a2 2 0 00-2 2v12a2 2 0 002 2h7l-2 3h8l-2-3h7a2 2 0 002-2V4z"),
+  GitBranch:    mkI("M6 3v12","M18 9a3 3 0 100-6 3 3 0 000 6z","M6 21a3 3 0 100-6 3 3 0 000 6z","M18 9a9 9 0 01-9 9"),
+  Package:      mkI("M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z","M3.27 6.96L12 12.01l8.73-5.05","M12 22.08V12"),
+  FileText:     mkI("M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z","M14 2v6h6","M16 13H8","M16 17H8","M10 9H8"),
+  TrendingUp:   mkI("M23 6l-9.5 9.5-5-5L1 18","M17 6h6v6"),
+  RefreshCw:    mkI("M1 4v6h6","M23 20v-6h-6","M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"),
+  X:            mkI("M18 6L6 18","M6 6l12 12"),
+  Cpu:          mkI("M18 4H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2z","M9 9h6","M9 12h6","M9 15h4"),
+  Calculator:   mkI("M4 2h16a2 2 0 012 2v16a2 2 0 01-2 2H4a2 2 0 01-2-2V4a2 2 0 012-2z","M8 6h8","M8 10h8","M8 14h4","M8 18h4"),
+  Radio:        mkI("M5 12.55a11 11 0 0114.08 0","M1.42 9a16 16 0 0121.16 0","M8.53 16.11a6 6 0 016.95 0","M12 20h.01"),
+  LayoutGrid:   mkI("M3 3h7v7H3z","M14 3h7v7h-7z","M14 14h7v7h-7z","M3 14h7v7H3z"),
+  Laptop:       mkI("M20 16V4a2 2 0 00-2-2H6a2 2 0 00-2 2v12","M2 16h20","M8 20h8","M12 16v4"),
+  HelpCircle:   mkI("M12 22a10 10 0 100-20 10 10 0 000 20z","M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3","M12 17h.01"),
+  MapPin:       mkI("M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z","M12 10a2 2 0 100-4 2 2 0 000 4"),
+  Navigation:   mkI("M3 11l19-9-9 19-2-8-8-2z"),
+  ShoppingCart: mkI("M9 22a1 1 0 100-2 1 1 0 000 2z","M20 22a1 1 0 100-2 1 1 0 000 2z","M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"),
+  Activity:     mkI("M22 12h-4l-3 9L9 3l-3 9H2"),
+  Split:        mkI("M16 3h5v5","M8 3H3v5","M12 22V3","M3 16v3h5","M21 16v3h-5"),
+  PawPrint:     mkI("M12 18c-5 0-8-2.5-8-5.5S7 7 12 7s8 2.5 8 5.5S17 18 12 18z"),
+  Heart:        mkI("M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"),
+  Network:      mkI("M9 3H5a2 2 0 00-2 2v4","M16 3h3a2 2 0 012 2v4","M9 21H5a2 2 0 01-2-2v-4","M16 21h3a2 2 0 002-2v-4","M9 3v18","M16 3v18","M3 9h18","M3 15h18"),
+  TrendingDown: mkI("M23 18l-9.5-9.5-5 5L1 6","M17 18h6v-6"),
+  Mic:          mkI("M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z","M19 10v2a7 7 0 01-14 0v-2","M12 19v4","M8 23h8"),
+  Info:         mkI("M12 22a10 10 0 100-20 10 10 0 000 20z","M12 16v-4","M12 8h.01"),
+};
+const Ico = ({ name, size=14, color='currentColor', style={} }) => {
+  const C2 = I[name]; return C2 ? <C2 size={size} color={color} style={style}/> : null;
+};
+
+/* ══════════ PRIMITIVES ══════════ */
+const Badge = ({ children, color }) => (
+  <span className="badge" style={{ background:`${color}22`, color, border:`1px solid ${color}44` }}>{children}</span>
+);
+const Tag = ({ children, color }) => (
+  <span className="tag" style={{ background:`${color}18`, color }}>{children}</span>
+);
+const SecTitle = ({ children, color, mt=0 }) => (
+  <div className="section-title" style={{ color:color||C.accent, marginTop:mt }}>{children}</div>
+);
+const Divider = () => <div className="divider"/>;
+const Bullet = ({ children, color }) => (
+  <div className="bullet">
+    <div className="bullet-dot" style={{ background:color||C.accent }}/>
+    <span style={{ fontSize:11, color:C.text, lineHeight:1.5 }}>{children}</span>
+  </div>
+);
+const FStep = ({ icon, label, sublabel, color, isLast }) => (
+  <div className="flow-step">
+    <div className="fstep-icon">
+      <div className="fstep-dot" style={{ background:`${color}22`, borderColor:color }}>
+        <Ico name={icon} size={12} color={color}/>
+      </div>
+      {!isLast && <div className="fstep-line" style={{ background:`${color}44` }}/>}
+    </div>
+    <div style={{ paddingTop:2 }}>
+      <div style={{ fontSize:11, fontWeight:600, color:C.text }}>{label}</div>
+      {sublabel && <div style={{ fontSize:10, color:C.muted2 }}>{sublabel}</div>}
+    </div>
+  </div>
+);
+const TreeNode = ({ label, sub, children, color, icon, level=0, open:def=true }) => {
+  const [open, setOpen] = useState(def);
+  return (
+    <div style={{ marginLeft:level*14 }}>
+      <div style={{ display:'flex', alignItems:'flex-start', gap:5, cursor:'pointer', padding:'3px 0' }}
+        onClick={() => setOpen(!open)}>
+        {children
+          ? <Ico name={open?'ChevronDown':'ChevronRight'} size={11} color={color}/>
+          : <div style={{ width:11 }}/>}
+        {icon && <Ico name={icon} size={12} color={color} style={{ marginTop:1 }}/>}
+        <div>
+          <span style={{ fontSize:11, fontWeight:500, color:C.text }}>{label}</span>
+          {sub && <div style={{ fontSize:10, color:C.muted2 }}>{sub}</div>}
+        </div>
+      </div>
+      {open && children && <div>{children}</div>}
+    </div>
+  );
+};
+
+/* ══════════ DOMAIN DATA ══════════ */
+const DOMAINS = [
+  {
+    id:"product", icon:"Package", color:C.product, init:"PE",
+    label:"Product Engine", badge:"Backend interno Vaitty",
+    status:"partial", statusLabel:"Parcial en monolito",
+    what:"Capa de orquestación de producto. Contiene la lógica de cobertura, reglas de negocio, motor de cotización y versionado de productos. CONSUME el catálogo de servicios de Provider & Service Management — no lo define.",
+    how:"El Grow Center y los 3 portales de partner consumen sus APIs. Ninguna UI de partner contiene lógica propia. La definición de servicios y baremos viene del Supply Domain.",
+    missing:"No existe como sistema independiente. La lógica vive mezclada en el monolito. La separación entre Product Engine y Supply Domain no está implementada.",
+    points:["Motor de cotización: inputs → precio per cápita en cualquiera de los 8 modelos","Reglas de cobertura: wallet, events, km_events, one_time — validación en tiempo real","Versiones de producto: beneficiarios activos quedan en su versión hasta renovación","CONSUME catálogo de servicios vía API de Provider & Service Management — no es dueño del catálogo"],
+  },
+  {
+    id:"growcenter", icon:"Monitor", color:C.omni, init:"GC",
+    label:"Product Configuration", badge:"Demanda — qué cubro y cuánto",
+    status:"active", statusLabel:"Activo — migrado (Lovable)",
+    what:"Herramienta de configuración de coberturas para el sales team del partner y Vaitty. Diseña beneficios, define montos (wallet/events) y construye productos. NO define servicios — los selecciona del catálogo publicado por Provider & Service Management.",
+    how:"React 18 + TypeScript + Vite (Lovable). CONSUME la API de servicios de Provider & Service Management para poblar el catálogo disponible. Gestiona localmente (localStorage → migrar a BD): beneficios, coberturas, productos, listas de precios.",
+    missing:"Entidades en localStorage deben migrar a BD. Aún consume servicios/bienes/especialidades directamente del API Gateway en lugar de hacerlo a través de Provider & Service Management como capa unificada.",
+    points:["CONSUME catálogo: elige qué servicios incluir en el producto desde el catálogo de Provider & Service Mgmt","DEFINE coberturas: tipo (wallet/events/one_time) + montos + límites de eventos por categoría","CONSTRUYE productos: asocia beneficios a pólizas, define listas de precios","BusinessModels: bundle, standalone, cashback, garantia_extendida","Separación clave: el PRECIO al prestador (baremo) lo define el Supply Domain — el MONTO al beneficiario (cobertura) lo define este dominio"],
+  },
+  {
+    id:"quotation", icon:"Calculator", color:C.quotation, init:"QE",
+    label:"Motor de Cotización", badge:"Hoy solo en Excel",
+    status:"missing", statusLabel:"Solo en Excel — construir",
+    what:"Analiza requerimientos del partner y genera pricing en cualquiera de los 8 modelos. Mati Business Dev lo usa en el paso 4 del flujo comercial.",
+    how:"Forma parte del Product Engine. La UI está en el Grow Center. Mati puede llamarlo directamente.",
+    missing:"Hoy es un archivo Excel manual. No hay flujo de aprobación de pricing en ningún sistema.",
+    points:["Inputs: cápitas, tasa de uso, cobertura pretendida, modelo de negocio, comisión canal","Curva de escalones: precio ajusta por tramo de uso real","Output: precio per cápita sugerido, rentabilidad, escenarios","Aprobación interna (Nadir/Lara) antes de que el partner vea el precio"],
+  },
+  {
+    id:"distribution", icon:"GitBranch", color:C.distribution, init:"D&C",
+    label:"Distribution & Commissions", badge:"No implementado",
+    status:"missing", statusLabel:"No existe en sistema",
+    what:"Motor de comisiones del proceso de VENTA. Solo aplica al Mundo 1. Cuando se vende una cobertura, calcula y registra las comisiones para la cadena de distribución.",
+    how:"Debe ser un módulo del Product Engine con su propia UI en el Grow Center. No tiene relación con el ciclo de vida del servicio.",
+    missing:"No existe en ningún sistema. Vive en contratos y hojas de cálculo.",
+    points:["Dos modelos: Markup (comercializador recauda libre) vs. Comisión (Vaitty/partner factura)","One-shot al alta + recurring por ciclo — aplican a toda la cadena","Árbol: Partner Org → Comercializador → Sucursal → Vendedor","Motor de liquidación periódica automática"],
+  },
+  {
+    id:"identity", icon:"Lock", color:C.identity, init:"I&A",
+    label:"Identity & Access", badge:"Multi-tenant desde diseño",
+    status:"partial", statusLabel:"Parcial en monolito",
+    what:"Gestión de identidad multi-tenant, roles por sistema y 4 flujos de activación de beneficiario según quién recauda.",
+    how:"Cada entidad tiene partner_id. El API gateway aplica aislamiento de tenant antes de llegar a cualquier dominio.",
+    missing:"Roles operativos internos (agentes, TL, ejecutivos de prestadores, tesorería) no modelados.",
+    points:["4 flujos de activación: mayorista (SFTP/API), minorista Vaitty, minorista comercializador, minorista prestadora","Activación: inmediata o con carencia (configurable por producto)","Multi-country: aislamiento por país y moneda","Cada partner = 1 tenant. Vaitty admin ve todo"],
+  },
+  {
+    id:"service", icon:"Wrench", color:C.service, init:"SO",
+    label:"Service Orchestration", badge:"Core operativo — Mundo 2",
+    status:"partial", statusLabel:"Parcial en monolito",
+    what:"Motor del ciclo de vida del servicio. Gestiona toda la prestación desde que el beneficiario pide hasta que el prestador cobra. Omnichannel Hub es un componente interno.",
+    how:"Beneficiario y prestador tienen canales propios (WhatsApp, portal, app). Ambos se normalizan al mismo formato. El estado del servicio es la fuente de verdad.",
+    missing:"Event Sourcing no implementado. ServiceAuthorization (montos) no existe. Split de beneficios combinados no soportado.",
+    points:["Canales del beneficiario: WhatsApp, IVR, Portal autogestión, API partner (white label)","Canales del prestador: WhatsApp (chat), App del prestador (gestión de asignaciones)","ServiceAuthorization al prestador: monto Vaitty + excedente máximo — antes de ejecutar","Beneficios combinados: un request puede tener N ServiceItems con N prestadores distintos"],
+  },
+  {
+    id:"provider", icon:"Users", color:C.provider, init:"P&S",
+    label:"Provider & Service Mgmt", badge:"Supply Domain — oferta y red",
+    status:"partial", statusLabel:"Parcial en monolito",
+    what:"Dominio de supply. Dueño de dos responsabilidades: (1) Catálogo de servicios — qué servicios existen, qué incluyen, sus reglas y exclusiones, los bienes que aplican; (2) Red de prestadores — quién ejecuta cada servicio, en qué zona, a qué baremo y con qué performance. El Product Configuration (Grow Center) consume este catálogo pero no lo define.",
+    how:"Dos capas internas del mismo bounded context: Service Catalog (definición de servicios, bienes, especialidades — fuente de verdad para el Grow Center) + Provider Registry (padrón, baremos por zona/especialidad, performance, posicionamiento). Ambas exponen APIs consumidas por Product Engine y Service Orchestration.",
+    missing:"No existe separado del monolito. La separación Service Catalog ↔ Provider Registry no está implementada. Algoritmo de posicionamiento no automatizado. Alertas de gap de red no implementadas.",
+    points:["SERVICE CATALOG (supply-side): define servicios, bienes y especialidades. Es la fuente de verdad del catálogo — el Grow Center los CONSUME, no los edita","PROVIDER REGISTRY: padrón de prestadores, baremos por zona/especialidad, zonas de cobertura, métricas de performance","Baremo = precio que Vaitty paga al prestador. Precio de referencia = costo orientativo para el cliente. Historial real = 8 años de datos","Posicionamiento: prestadores dentro del rango del precio de referencia ganan prioridad en la asignación","Gap de red: sin prestador disponible → habilita reintegro automático + alerta operativa (indicador de deuda en la red)","DECISIÓN ARQUITECTÓNICA: esta separación evita que el precio del servicio al prestador (baremo) sea visible o editable por el partner vía Grow Center"],
+  },
+  {
+    id:"finance", icon:"DollarSign", color:C.finance, init:"F&T",
+    label:"Finance & Treasury", badge:"Parcial en monolito",
+    status:"partial", statusLabel:"Parcial en monolito",
+    what:"Facturación al partner, recaudación, settlement con prestadores, reintegros al beneficiario y anti-fraude. Gestiona flujos de AMBOS mundos con lógicas separadas.",
+    how:"Existe parcialmente. Necesita soporte para los 8 modelos de precio y facturación acumulada del prestador.",
+    missing:"Modelos TPA y GAREX no implementados. Anti-fraude en construcción. Liquidación de comisiones no automatizada.",
+    points:["Proceso de transacción: registro al completar un servicio (Mundo 2 — no es una factura)","Prestador factura acumulada a Vaitty (N servicios del período)","Recaudación de cobertura: facturación per cápita o por evento al partner (Mundo 1)","Anti-fraude v1: ARCA (validación AFIP) + detector de duplicados"],
+  },
+];
+
+/* ══════════ NODE GRAPH LAYOUT (in a 880×440 canvas) ══════════ */
+// Positions define top-left corner in SVG coordinates
+const NP = {
+  product:      { x:50,  y:50,  w:148, h:54 },
+  growcenter:   { x:285, y:50,  w:148, h:54 },
+  quotation:    { x:530, y:50,  w:148, h:54 },
+  distribution: { x:650, y:200, w:148, h:54 },
+  identity:     { x:12,  y:265, w:140, h:54 },
+  service:      { x:92,  y:375, w:148, h:54 },
+  provider:     { x:332, y:375, w:148, h:54 },
+  finance:      { x:562, y:375, w:148, h:54 },
+};
+const EB = { x:192, y:210, w:447, h:40 }; // Event Bus
+
+// SVG connection paths between node edges
+const CONNS = [
+  { d:"M 198,77 H 285",                          c:C.product,      cls:"flow-b" },
+  { d:"M 433,77 H 530",                          c:C.quotation,    cls:"flow-b" },
+  { d:"M 124,104 C 124,158 220,158 220,210",     c:C.accent,       cls:"flow-a" },
+  { d:"M 650,227 H 639",                         c:C.distribution, cls:"flow-b" },
+  { d:"M 87,319 C 87,375 92,375 92,375",         c:C.identity,     cls:"flow-d" },
+  { d:"M 240,250 C 240,312 166,312 166,375",     c:C.service,      cls:"flow-a" },
+  { d:"M 590,250 C 590,312 636,312 636,375",     c:C.finance,      cls:"flow-a" },
+  { d:"M 240,402 H 332",                         c:C.provider,     cls:"flow-b" },
+  { d:"M 480,402 H 562",                         c:C.finance,      cls:"flow-b" },
+  { d:"M 406,375 C 406,310 415,310 415,250",     c:C.service,      cls:"flow-c" },
+];
+
+const statusDot = s => s==='active' ? C.green : s==='partial' ? C.yellow : C.red;
+const VW = 880, VH = 440;
+
+/* ── Platform Map Tab ── */
+const PlatformMap = () => {
+  const [sel, setSel] = useState(null);
+  const domain = DOMAINS.find(d => d.id === sel);
+
+  return (
+    <div>
+      {/* Partner Platform — 1 plataforma, 3 vistas por módulo */}
+      <div style={{ marginBottom:12, background:`${C.omni}08`, border:`1.5px solid ${C.omni}33`, borderRadius:13, padding:'10px 13px' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:9 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <div style={{ background:`${C.omni}22`, borderRadius:7, padding:5 }}>
+              <Ico name="LayoutGrid" size={13} color={C.omni}/>
+            </div>
+            <div>
+              <span style={{ fontSize:11, fontWeight:900, color:C.omni }}>Partner Platform</span>
+              <span style={{ fontSize:10, color:C.muted2, marginLeft:8 }}>— 1 plataforma, 3 vistas activadas por módulo según tipo de usuario</span>
+            </div>
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:5, background:`${C.accent}15`, border:`1px solid ${C.accent}44`, borderRadius:20, padding:'3px 9px' }}>
+            <Ico name="Shield" size={10} color={C.accent}/>
+            <span style={{ fontSize:9, fontWeight:800, color:C.accent }}>Presets controlados por Vaitty</span>
+          </div>
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
+          {[
+            { color:C.omni,    icon:"Monitor",      label:"Grow Center",       sub:"Configuración de coberturas y productos",  who:"Sales team del partner + equipo Vaitty",
+              modules:["Beneficios y coberturas (wallet / events / one_time)","Productos y listas de precios","Catálogo disponible (read-only, viene de Provider & Service Mgmt)","Distribución y comisiones"],
+              note:"El partner ve servicios disponibles pero no los edita. La definición del catálogo la controla Vaitty desde el Supply Domain." },
+            { color:C.service, icon:"Activity",     label:"Service Tracking",  sub:"Seguimiento operativo y SLAs",       who:"Calidad / operaciones del partner",
+              modules:["Servicios en curso","Performance de prestadores","SLAs y tiempos","Solicitar servicio manual"],
+              note:"Vista operativa en tiempo real. El partner observa, no opera." },
+            { color:C.sales,   icon:"ShoppingCart", label:"Sales Manager",     sub:"Ventas, altas y comisiones",         who:"Comercializadores, sucursales, vendedores",
+              modules:["Alta de beneficiarios","Gestión de ventas","Comisiones devengadas","Red de distribución"],
+              note:"El usuario final de ventas. Accede solo a sus propios registros." },
+          ].map((p,i) => (
+            <div key={i} style={{ background:`${p.color}0d`, borderRadius:9, padding:'9px 10px', border:`1px solid ${p.color}22` }}>
+              <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:5 }}>
+                <Ico name={p.icon} size={11} color={p.color}/>
+                <span style={{ fontSize:10, fontWeight:800, color:p.color }}>{p.label}</span>
+              </div>
+              <div style={{ fontSize:9, color:C.muted2, marginBottom:5 }}>{p.sub}</div>
+              <div style={{ fontSize:8.5, color:C.muted, marginBottom:5 }}>👤 {p.who}</div>
+              <div style={{ borderTop:`1px solid ${p.color}22`, paddingTop:5 }}>
+                {p.modules.map((m,j) => (
+                  <div key={j} style={{ fontSize:8.5, color:C.text, lineHeight:1.6 }}>· {m}</div>
+                ))}
+              </div>
+              <div style={{ marginTop:5, fontSize:8, color:`${p.color}99`, fontStyle:'italic', lineHeight:1.4 }}>{p.note}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ marginTop:8, fontSize:9, color:C.muted, display:'flex', alignItems:'flex-start', gap:5 }}>
+          <Ico name="Info" size={10} color={C.muted} style={{ marginTop:1, flexShrink:0 }}/>
+          <span>Los módulos visibles para cada usuario los define Vaitty a pedido del partner. Un mismo usuario puede tener acceso a módulos de distintas vistas. La configuración de presets no la puede hacer el partner por su cuenta.</span>
+        </div>
+      </div>
+
+      {/* Click-to-expand instruction */}
+      <div style={{ fontSize:10, color:C.muted, marginBottom:8, display:'flex', alignItems:'center', gap:5 }}>
+        <Ico name="ChevronRight" size={11} color={C.muted}/>
+        Hacé click en cualquier dominio del mapa para ver el detalle completo
+      </div>
+
+      {/* ── GRAPH: SVG lines + HTML div nodes ── */}
+      <div className="graph-wrap" style={{ background:'#080f1c', borderRadius:14, border:`1px solid ${C.border}`, padding:10 }}>
+        {/* SVG: ONLY for connection lines — pointer-events:none so HTML nodes get all clicks */}
+        <svg className="graph-svg" viewBox={`0 0 ${VW} ${VH}`} style={{ pointerEvents:'none' }}>
+          <defs>
+            <filter id="gbus2">
+              <feGaussianBlur in="SourceAlpha" stdDeviation="5" result="b"/>
+              <feFlood floodColor="#38bdf8" floodOpacity=".4" result="c"/>
+              <feComposite in="c" in2="b" operator="in" result="s"/>
+              <feMerge><feMergeNode in="s"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+          </defs>
+
+          {/* dot grid */}
+          {Array.from({length:11},(_,r) => Array.from({length:20},(_,c) => (
+            <circle key={`${r}${c}`} cx={c*46+20} cy={r*42+15} r="1" fill="#334155" opacity=".3"/>
+          )))}
+
+          {/* Connection lines */}
+          {CONNS.map((cn,i) => (
+            <path key={i} d={cn.d} stroke={cn.c} strokeWidth={cn.cls==='flow-a'?2:1.6}
+              fill="none" className={cn.cls}/>
+          ))}
+
+          {/* Event Bus — SVG version (visual only) */}
+          <rect x={EB.x} y={EB.y} width={EB.w} height={EB.h} rx="9"
+            fill="#0d1a2e" stroke="#38bdf877" strokeWidth="1.5" filter="url(#gbus2)"/>
+          <path d={`M ${EB.x+6} ${EB.y+20} h ${EB.w-12}`} stroke="#38bdf8" strokeWidth="1"
+            strokeDasharray="14 6" opacity=".4" className="flow-a"/>
+        </svg>
+
+        {/* ── HTML DIV NODES (FIX: reliable clicks, full area clickable) ── */}
+        {DOMAINS.map(dm => {
+          const p = NP[dm.id];
+          if (!p) return null;
+          const isSel = sel === dm.id;
+          const pct = (v, total) => `${(v/total)*100}%`;
+          return (
+            <div key={dm.id}
+              className={`graph-node${isSel?' selected':''}`}
+              style={{
+                left:   pct(p.x, VW),
+                top:    pct(p.y, VH),
+                width:  pct(p.w, VW),
+                height: pct(p.h, VH),
+                borderColor: isSel ? dm.color : `${dm.color}55`,
+                borderWidth:  isSel ? 2 : 1.5,
+                boxShadow: isSel ? `0 0 16px ${dm.color}33` : 'none',
+              }}
+              onClick={() => setSel(sel === dm.id ? null : dm.id)}
+              title={`Click para ver detalles de ${dm.label}`}
+            >
+              <div className="node-icon-area" style={{ background:`${dm.color}22` }}>
+                <Ico name={dm.icon} size={16} color={dm.color}/>
+                <div style={{ fontSize:8, fontWeight:900, color:dm.color, marginTop:2, lineHeight:1.1, textAlign:'center' }}>
+                  {dm.init}
+                </div>
+              </div>
+              <div className="node-text-area">
+                <div className="node-title">{dm.label}</div>
+                <div className="node-status" style={{ color: statusDot(dm.status) }}>{dm.statusLabel}</div>
+              </div>
+              <div className="node-status-dot" style={{ background: statusDot(dm.status) }}/>
+            </div>
+          );
+        })}
+
+        {/* Event Bus div (also HTML for consistency) */}
+        <div className="event-bus" style={{
+          left:   `${(EB.x/VW)*100}%`,
+          top:    `${(EB.y/VH)*100}%`,
+          width:  `${(EB.w/VW)*100}%`,
+          height: `${(EB.h/VH)*100}%`,
+        }}>
+          <span style={{ fontSize:9, color:'#38bdf877', letterSpacing:'0.05em' }}>VENTA →</span>
+          <span className="bus-label">══ EVENT BUS ══</span>
+          <span style={{ fontSize:9, color:`${C.service}99`, letterSpacing:'0.05em' }}>← SERVICIO</span>
+        </div>
+
+        {/* Legend */}
+        <div style={{ position:'absolute', bottom:10, left:12, display:'flex', gap:14, fontSize:9, color:C.muted }}>
+          {[['active',C.green,'Activo'],['partial',C.yellow,'Parcial'],['missing',C.red,'No implementado']].map(([s,c,l]) => (
+            <span key={s} style={{ display:'flex', alignItems:'center', gap:4 }}>
+              <span style={{ width:7,height:7,borderRadius:'50%',background:c,display:'inline-block' }}/>
+              {l}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* ── DETAIL PANEL — appears below graph, natural document flow ── */}
+      {domain && (
+        <div className="detail-panel" style={{ background:`#0b1526`, border:`2px solid ${domain.color}` }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+              <div style={{ background:`${domain.color}22`, borderRadius:9, padding:8 }}>
+                <Ico name={domain.icon} size={20} color={domain.color}/>
+              </div>
+              <div>
+                <div style={{ fontWeight:800, fontSize:14, color:domain.color }}>{domain.label}</div>
+                <Badge color={domain.color}>{domain.badge}</Badge>
+              </div>
+              <Badge color={statusDot(domain.status)}>{domain.statusLabel}</Badge>
+            </div>
+            <button
+              onClick={() => setSel(null)}
+              style={{ background:C.border, border:'none', borderRadius:'50%', width:28, height:28, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <Ico name="X" size={14} color={C.muted2}/>
+            </button>
+          </div>
+          <div className="detail-grid">
+            <div>
+              <SecTitle>QUÉ ES</SecTitle>
+              <p style={{ fontSize:11, color:C.text, lineHeight:1.6 }}>{domain.what}</p>
+            </div>
+            <div>
+              <SecTitle>CÓMO SE INTEGRA</SecTitle>
+              <p style={{ fontSize:11, color:C.text, lineHeight:1.6 }}>{domain.how}</p>
+            </div>
+            <div>
+              <SecTitle color={C.red}>GAP ACTUAL</SecTitle>
+              <p style={{ fontSize:11, color:C.text, lineHeight:1.6, marginBottom:10 }}>{domain.missing}</p>
+              <SecTitle>REGLAS CLAVE</SecTitle>
+              {domain.points.map((pt,i) => <Bullet key={i} color={domain.color}>{pt}</Bullet>)}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── EVENT BUS EXPLANATION ── */}
+      <div style={{ marginTop:18, background:`${C.accent}0a`, border:`1.5px solid ${C.accent}33`, borderRadius:13, padding:14 }}>
+        <div style={{ display:'flex', alignItems:'flex-start', gap:10, marginBottom:10 }}>
+          <div style={{ background:`${C.accent}22`, borderRadius:8, padding:7, flexShrink:0 }}>
+            <Ico name="Radio" size={16} color={C.accent}/>
+          </div>
+          <div>
+            <div style={{ fontSize:12, fontWeight:900, color:C.accent, marginBottom:3 }}>¿Qué es el Event Bus?</div>
+            <p style={{ fontSize:11, color:C.text, lineHeight:1.65 }}>
+              Sistema de mensajería interna que conecta los dominios del núcleo. Cuando algo importante ocurre en un dominio (un servicio se completa, una cobertura se activa, un reintegro se aprueba), ese dominio <strong style={{color:C.accent}}>publica un evento</strong> en el bus. Los demás dominios que necesitan reaccionar lo escuchan de forma independiente, sin acoplarse entre sí.
+            </p>
+          </div>
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+          {[
+            { color:C.sales,   icon:"ShoppingCart", title:"FLUJO VENTA — con comisiones",
+              events:["CoverageCreated → Distribution dispara one-shot al vendedor y configura recurring","BillingCycleCompleted → Distribution calcula recurring + Finance liquida","CoverageCancelled → posible clawback según contrato"] },
+            { color:C.service, icon:"Wrench",        title:"FLUJO SERVICIO — sin comisiones",
+              events:["ServiceCompleted → Finance genera Proceso de transacción","ServiceCompleted → Provider actualiza performance del prestador","ServiceCompleted → Product consume cobertura (wallet o events)","ReintegroApproved → Finance emite reintegro al beneficiario"] },
+          ].map((f,i) => (
+            <div key={i} style={{ background:`${f.color}0d`, borderRadius:9, padding:'10px 12px', border:`1px solid ${f.color}22` }}>
+              <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:7 }}>
+                <Ico name={f.icon} size={11} color={f.color}/>
+                <span style={{ fontSize:9.5, fontWeight:800, color:f.color, letterSpacing:'0.04em' }}>{f.title}</span>
+              </div>
+              {f.events.map((ev,j) => (
+                <div key={j} style={{ fontFamily:'monospace', fontSize:9.5, color:`${f.color}cc`, lineHeight:1.55, marginBottom:2 }}>→ {ev}</div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── SISTEMAS FUERA DEL EVENT BUS ── */}
+      <SatelliteSection/>
+    </div>
+  );
+};
+
+/* ── Satellite Systems — fuera del Event Bus ── */
+const SATELLITES = [
+  {
+    id:"app_prestador", icon:"Smartphone", label:"App Prestador", color:C.provider,
+    badge:"Channel Adapter", connectionLabel:"API → Service Orchestration", connectionType:"api",
+    role:"Interfaz móvil exclusiva para prestadores. Recibe la ServiceAuthorization (qué cubre Vaitty y qué puede cobrarle al beneficiario), actualiza el estado del servicio en tiempo real y registra el cierre de la visita.",
+    why:"Es la capa de entrada/salida del prestador hacia el dominio Service. Traduce acciones del prestador (aceptar, llegar, completar) en comandos REST hacia el Service Orchestrator. No necesita publicar ni consumir eventos de dominio — el bus es un detalle interno del núcleo.",
+    gap:"No implementado. Hoy el prestador opera por WhatsApp y llamadas. La app eliminaría fricción operativa y habilitaría tracking GPS en tiempo real para el beneficiario.",
+  },
+  {
+    id:"contact_center", icon:"Phone", label:"Contact Center (IVR)", color:C.service,
+    badge:"Channel Adapter", connectionLabel:"API → Service Orchestration", connectionType:"api",
+    role:"Canal de voz 24/7 para solicitud de servicios. IVR automatizado identifica al beneficiario, valida cobertura disponible y crea el ServiceRequest. Escala a agente humano para casos que requieran criterio.",
+    why:"Es un punto de entrada de comandos, no un participante en flujos de dominio. El IVR traduce una llamada en un ServiceRequest y lo inyecta al Service Orchestrator vía API. Una vez creado el request, el bus toma el control internamente. El Contact Center no necesita saber qué pasa después.",
+    gap:"Operativo pero desacoplado de la plataforma nueva. Hoy genera tickets manuales en el monolito. Pendiente: integración directa con el Service Orchestrator para crear ServiceRequests automáticamente y cerrar el loop sin intervención humana.",
+  },
+  {
+    id:"portal_beneficiario", icon:"Globe", label:"Portal Beneficiario", color:C.product,
+    badge:"Channel Adapter", connectionLabel:"API → Service + Identity + Finance", connectionType:"api",
+    role:"Interfaz web/app para que el beneficiario consulte su cobertura activa, solicite servicios programados, haga seguimiento de servicios en curso y gestione reintegros. También punto de alta en modelos stand-alone.",
+    why:"Channel adapter — traduce la intención del beneficiario en comandos hacia las APIs del núcleo (ServiceRequest, ReintegroRequest). Consume eventos de dominio solo para mostrar estado, pero no los produce. El bus es interno al sistema; el portal lo observa desde afuera vía polling o webhooks.",
+    gap:"Parcialmente implementado. El portal de autogestión existe pero no está conectado al nuevo modelo de datos. Pendiente: sincronizar con Identity (cobertura activa), Service (estado en tiempo real) y Finance (historial de consumos y reintegros).",
+  },
+  {
+    id:"mati", icon:"Cpu", label:"Agente Mati (Business Dev)", color:C.accent,
+    badge:"Agente Comercial + BI · WhatsApp", connectionLabel:"API → Quotation + Product + Data Lake", connectionType:"future",
+    role:"Agente AI (claude-opus-4-6, thinking: adaptive) que opera vía WhatsApp. Tiene dos modos: (1) Comercial pre-venta — acompaña al partner en el diseño de producto, cotización en cualquiera de los 8 modelos y redacción de T&C; (2) BI para partners activos — responde consultas sobre sus propios datos: clientes activos, servicios ejecutados, tasas de uso por vertical, indicadores de performance. Regla clave: nunca muestra precios al partner sin aprobación de Nadir/Lara.",
+    why:"Opera en dominios que son anteriores o paralelos al ciclo operativo (comercial y analytics), nunca dentro de él. No tiene razón de participar en el bus transaccional porque no toma decisiones sobre servicios en curso. Accede a datos vía query a la capa de BI/Data Lake, no como suscriptor de eventos en tiempo real.",
+    gap:"Dos gaps: (1) Conexión al Quotation Engine para saber cuándo una cotización fue aprobada y disparar automáticamente el paso siguiente — hoy es manual. (2) Conexión al Data Lake para responder consultas de BI del partner — hoy no existe, Mati no tiene acceso a datos de clientes/servicios del partner en tiempo real.",
+  },
+  {
+    id:"data_lake", icon:"Database", label:"Data Lake (8 años)", color:C.finance,
+    badge:"Analytics / BI", connectionLabel:"CDC/Stream ← Event Bus (PENDIENTE)", connectionType:"gap",
+    role:"Repositorio histórico con 8 años de datos operativos: servicios ejecutados, baremos reales, tasas de uso por vertical y partner, costos y rentabilidad histórica. Es la base para pricing inteligente, detección de patrones de fraude y benchmarking de prestadores.",
+    why:"Consumidor analítico pasivo — observa pero nunca actúa en tiempo real sobre el sistema transaccional. En arquitecturas event-driven correctas, el Data Lake recibe eventos del bus por un canal separado (CDC o event streaming) para no impactar la latencia del bus operativo. Leer del bus ≠ participar en él.",
+    gap:"Gap crítico y prioritario: no existe un consumer del Event Bus hacia el Data Lake. Los 8 años de historia están en el monolito anterior sin cruzarse con el nuevo modelo de datos. Habilitar este canal es la base para activar pricing dinámico, análisis de siniestralidad y detección de fraude con IA.",
+  },
+  {
+    id:"whatsapp_bot", icon:"MessageSquare", label:"WhatsApp Bot", color:"#25d366",
+    badge:"Canal Beneficiario — REDEFINIR", connectionLabel:"API → Service Orchestration", connectionType:"redesign",
+    role:"Canal principal de atención automatizada al beneficiario vía WhatsApp Business. Hoy opera con flujos estructurados: botones, menús numerados y respuestas predefinidas. El beneficiario navega opciones fijas para solicitar servicios, consultar estado o gestionar reintegros.",
+    why:"Es un channel adapter — el bot traduce la interacción del beneficiario en comandos hacia el Service Orchestrator (ServiceRequest, ReintegroRequest, StatusQuery) vía API. No tiene razón de conectarse al Event Bus como publicador; puede recibirlo como consumidor para notificar proactivamente (ej: 'tu prestador está en camino').",
+    gap:"Problema actual: sin lenguaje natural el flujo es rígido. Cualquier caso que salga del árbol de opciones cae en atención humana o se abandona. Redefinición propuesta: migrar a un agente conversacional con NLP/LLM que entienda intención, maneje contexto multi-turno, resuelva excepciones y escale solo cuando sea necesario. El bot estructurado puede coexistir como fallback para casos simples.",
+  },
+  {
+    id:"whatsapp_prestador", icon:"MessageSquare", label:"Bot WhatsApp Prestador", color:"#fb923c",
+    badge:"Canal Prestador · Activo", connectionLabel:"API → Service + Provider + Data Lake", connectionType:"api",
+    role:"Canal WhatsApp exclusivo para prestadores. Cubre el ciclo completo del prestador: (1) Alta y onboarding — el prestador se registra, carga documentación y configura su perfil de servicios y zonas de cobertura; (2) Notificaciones — recibe alertas de nuevos servicios asignados, recordatorios y cambios de estado; (3) Consultas de métricas — puede preguntar su performance: servicios completados, calificación, baremo pagado, facturación pendiente; (4) Preguntas frecuentes — resuelve dudas operativas sin intervención del equipo.",
+    why:"Channel adapter del lado del prestador, simétrico al WhatsApp Bot del beneficiario. Traduce las interacciones del prestador en comandos hacia el dominio Provider (actualizaciones de perfil, confirmación de servicios) y Service (actualizaciones de estado). No participa en el Event Bus como publicador — consume eventos de Service y Provider vía webhooks para enviar notificaciones.",
+    gap:"Existe y está operativo. Gaps identificados: (1) La consulta de métricas hoy es limitada — requiere conexión formal al Data Lake para responder preguntas complejas ('¿cuánto me deben este mes?', '¿cuál fue mi tasa de éxito en plomería el último trimestre?'); (2) El onboarding es asistido por humano en casos complejos — se puede automatizar más con validaciones de documentación por IA; (3) No hay canal de feedback estructurado del prestador hacia Vaitty.",
+  },
+  {
+    id:"voice_bot", icon:"Mic", label:"Voice Bot (IVR)", color:"#e879f9",
+    badge:"Canal Beneficiario — REDEFINIR", connectionLabel:"API → Service Orchestration", connectionType:"redesign",
+    role:"Sistema automatizado de atención por voz 24/7. Identifica al beneficiario, valida cobertura y crea ServiceRequests sin intervención humana. Hoy es un monolito: toda la lógica, los flujos de llamada y las integraciones viven en un único sistema difícil de modificar.",
+    why:"Igual que el WhatsApp Bot, es un channel adapter. El voice bot recibe voz/DTMF, la convierte en comandos y los inyecta al Service Orchestrator vía API. No participa en el Event Bus porque no tiene rol en la lógica de dominio — es la interfaz de entrada, no el motor.",
+    gap:"Problema actual: arquitectura monolítica hace imposible darle entornos separados (dev/staging/prod) y agregarle skills nuevas sin tocar el núcleo. Cada cambio de flujo es una intervención de alto riesgo. Redefinición propuesta: descomponer en una capa de orquestación de voz (STT → intent → routing) más skills intercambiables (validar_cobertura, solicitar_servicio, consultar_estado, gestionar_reintegro) deployables de forma independiente. Arquitectura análoga a la de Mati pero para voz.",
+  },
+];
+
+const connTypeStyle = t => t==='api'      ? { color:'#22d3ee', label:'API directa'          }
+                       : t==='future'   ? { color:'#f59e0b', label:'Conexión planificada'  }
+                       : t==='redesign' ? { color:'#e879f9', label:'Redefinición pendiente' }
+                       :                  { color:'#f87171', label:'Gap crítico'            };
+
+const SatelliteSection = () => {
+  const [sel, setSel] = useState(null);
+  const chosen = SATELLITES.find(s => s.id === sel);
+  return (
+    <div style={{ marginTop:18 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+        <Ico name="GitBranch" size={13} color={C.muted2}/>
+        <span style={{ fontSize:11, fontWeight:800, color:C.muted2, letterSpacing:'0.05em' }}>SISTEMAS FUERA DEL EVENT BUS</span>
+        <span style={{ fontSize:10, color:C.muted, marginLeft:4 }}>— channel adapters, soporte comercial y analytics</span>
+      </div>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(168px, 1fr))', gap:8 }}>
+        {SATELLITES.map(s => {
+          const ct = connTypeStyle(s.connectionType);
+          const isSel = sel === s.id;
+          return (
+            <div key={s.id}
+              onClick={() => setSel(isSel ? null : s.id)}
+              style={{
+                background: isSel ? `${s.color}18` : `${s.color}0a`,
+                border: `1.5px solid ${isSel ? s.color : s.color+'33'}`,
+                borderRadius:11, padding:'10px 10px 9px', cursor:'pointer',
+                transition:'all .18s ease',
+                boxShadow: isSel ? `0 0 14px ${s.color}22` : 'none',
+              }}
+            >
+              <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
+                <div style={{ background:`${s.color}22`, borderRadius:7, padding:5, flexShrink:0 }}>
+                  <Ico name={s.icon} size={13} color={s.color}/>
+                </div>
+                <div style={{ fontSize:10, fontWeight:800, color:s.color, lineHeight:1.25 }}>{s.label}</div>
+              </div>
+              <div style={{ fontSize:9, color:C.muted2, marginBottom:5, lineHeight:1.45 }}>{s.role.slice(0,80)}…</div>
+              <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                <span style={{ width:5,height:5,borderRadius:'50%',background:ct.color,display:'inline-block',flexShrink:0 }}/>
+                <span style={{ fontSize:8.5, color:ct.color, fontWeight:700 }}>{ct.label}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {chosen && (
+        <div style={{ marginTop:12, background:'#0b1526', borderRadius:13, padding:16, border:`2px solid ${chosen.color}`, animation:'popIn .2s ease' }}>
+          <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:12 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:9 }}>
+              <div style={{ background:`${chosen.color}22`, borderRadius:9, padding:8, flexShrink:0 }}>
+                <Ico name={chosen.icon} size={18} color={chosen.color}/>
+              </div>
+              <div>
+                <div style={{ fontWeight:900, fontSize:13, color:chosen.color }}>{chosen.label}</div>
+                <div style={{ display:'flex', gap:6, marginTop:3 }}>
+                  <Tag color={chosen.color}>{chosen.badge}</Tag>
+                  <Tag color={connTypeStyle(chosen.connectionType).color}>{chosen.connectionLabel}</Tag>
+                </div>
+              </div>
+            </div>
+            <button onClick={() => setSel(null)} style={{ background:C.border, border:'none', borderRadius:'50%', width:26, height:26, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+              <Ico name="X" size={12} color={C.muted2}/>
+            </button>
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:14 }}>
+            <div>
+              <SecTitle color={chosen.color}>QUÉ ES</SecTitle>
+              <p style={{ fontSize:11, color:C.text, lineHeight:1.65 }}>{chosen.role}</p>
+            </div>
+            <div>
+              <SecTitle>POR QUÉ QUEDA FUERA DEL BUS</SecTitle>
+              <p style={{ fontSize:11, color:C.text, lineHeight:1.65 }}>{chosen.why}</p>
+            </div>
+            <div>
+              <SecTitle color={connTypeStyle(chosen.connectionType).color}>ESTADO / GAP</SecTitle>
+              <p style={{ fontSize:11, color:C.text, lineHeight:1.65 }}>{chosen.gap}</p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* ══════════ TAB: DOS MUNDOS ══════════ */
+const TwoWorldsView = () => (
+  <div>
+    <h2 style={{ fontSize:16, fontWeight:800, color:C.text, marginBottom:4 }}>Los Dos Mundos de Vaitty</h2>
+    <p style={{ fontSize:11, marginBottom:16, color:C.muted2 }}>Venta de cobertura y prestación de servicio son flujos completamente separados.</p>
+    <div className="grid-2" style={{ marginBottom:16 }}>
+      {[
+        { color:C.sales, icon:"ShoppingCart", title:"MUNDO 1 — VENTA DE COBERTURA", badge:"Comisiones ocurren acá",
+          desc:"El partner (o su red comercial) vende la cobertura a un beneficiario. Se activa la póliza/producto. Las comisiones se generan en este momento.",
+          s1:"ACTORES", i1:["Partner Organización (aseguradora, banco, broker)","Comercializador (retail, banco sucursal, real estate)","Sucursal / zona / punto de venta","Vendedor individual","Beneficiario (compra la cobertura)"],
+          s2:"EVENTOS QUE GENERAN COMISIÓN", i2:["CoverageCreated → one-shot al vendedor y cadena","BillingCycleCompleted → recurring a toda la cadena","CoverageCancelled → posible clawback según contrato"],
+        },
+        { color:C.service, icon:"Wrench", title:"MUNDO 2 — PRESTACIÓN DE SERVICIO", badge:"NO hay comisiones acá",
+          desc:"El beneficiario consume su cobertura solicitando un servicio. Vaitty orquesta la prestación: valida cobertura, asigna un prestador, gestiona el ciclo de vida.",
+          s1:"ACTORES", i1:["Beneficiario (consume la cobertura ya comprada)","Vaitty (orquesta y paga)","Prestador (ejecuta y cobra baremo + excedente directo)"],
+          s2:"EVENTOS DEL SERVICIO (sin comisiones)", i2:["ServiceCompleted → Finance genera Proceso de transacción","ServiceCompleted → Provider actualiza performance del prestador","ServiceCompleted → Product deduce cobertura (wallet/events)","ReintegroApproved → Finance emite reintegro al beneficiario"],
+        }
+      ].map((w,i) => (
+        <div key={i} style={{ background:C.card, borderRadius:14, padding:16, border:`2px solid ${w.color}` }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+            <div style={{ background:`${w.color}33`, borderRadius:9, padding:7 }}><Ico name={w.icon} size={18} color={w.color}/></div>
+            <div>
+              <div style={{ fontWeight:800, fontSize:12, color:w.color }}>{w.title}</div>
+              <Tag color={w.color}>{w.badge}</Tag>
+            </div>
+          </div>
+          <p style={{ fontSize:11, color:C.text, marginBottom:10, lineHeight:1.5 }}>{w.desc}</p>
+          <SecTitle color={w.color}>{w.s1}</SecTitle>
+          {w.i1.map((a,j) => <Bullet key={j} color={w.color}>{a}</Bullet>)}
+          <Divider/>
+          <SecTitle color={w.color}>{w.s2}</SecTitle>
+          {w.i2.map((e,j) => (
+            <div key={j} style={{ background:`${w.color}0e`, borderRadius:7, padding:'5px 8px', marginBottom:4, fontFamily:'monospace', fontSize:10, color:w.color }}>{e}</div>
+          ))}
+        </div>
+      ))}
+    </div>
+
+    <div style={{ background:`${C.accent}0e`, border:`1px solid ${C.accent}33`, borderRadius:12, padding:14, marginBottom:14 }}>
+      <div style={{ display:'flex', alignItems:'flex-start', gap:8 }}>
+        <Ico name="Radio" size={16} color={C.accent} style={{ marginTop:2 }}/>
+        <div>
+          <div style={{ fontSize:11, fontWeight:800, color:C.accent, marginBottom:8 }}>EVENT BUS — Dos flujos de eventos completamente separados</div>
+          <div className="grid-2">
+            {[
+              { color:C.sales,   label:"EVENTOS DE VENTA (con comisiones)",     code:"CoverageCreated\n→ Distribution: one-shot al vendedor\n→ Distribution: setup recurring\n\nBillingCycleCompleted\n→ Distribution: calcular recurring\n→ Finance: liquidar comisiones" },
+              { color:C.service, label:"EVENTOS DE SERVICIO (sin comisiones)",  code:"ServiceCompleted\n→ Finance: Proceso de transacción\n→ Provider: actualizar performance\n→ Product: consumir cobertura\n\nReintegroApproved\n→ Finance: emitir reintegro" },
+            ].map((ev,i) => (
+              <div key={i}>
+                <SecTitle color={ev.color}>{ev.label}</SecTitle>
+                <pre style={{ background:`${ev.color}0e`, borderRadius:8, padding:'8px 10px', fontSize:10, color:ev.color, lineHeight:1.6 }}>{ev.code}</pre>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style={{ background:C.card, borderRadius:12, padding:14, border:`1px solid ${C.provider}44` }}>
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+        <Ico name="Split" size={16} color={C.provider}/>
+        <span style={{ fontSize:12, fontWeight:800, color:C.provider }}>Beneficios Combinados</span>
+        <Badge color={C.provider}>Gap crítico actual</Badge>
+      </div>
+      <div className="grid-2">
+        <div>
+          <SecTitle color={C.provider}>PROBLEMA ACTUAL</SecTitle>
+          {["Un solo requerimiento del beneficiario requiere N prestadores distintos","El sistema no puede hacer split automático de cobertura por servicio","Operativamente se crean múltiples pedidos manuales","Impide medir correctamente el costo real por beneficio combinado"].map((p,i) => <Bullet key={i} color={C.provider}>{p}</Bullet>)}
+        </div>
+        <div>
+          <SecTitle color={C.green}>SOLUCIÓN A DISEÑAR</SecTitle>
+          {["Un ServiceRequest puede contener N ServiceItems","Cada ServiceItem tiene su propio prestador y cobertura","La ServiceAuthorization se emite por ServiceItem","El Proceso de transacción se genera por ServiceItem pero agrupa en el Request"].map((s,i) => <Bullet key={i} color={C.green}>{s}</Bullet>)}
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
+/* ══════════ TAB: PRODUCTO ══════════ */
+const ProductView = () => (
+  <div>
+    <h2 style={{ fontSize:16, fontWeight:800, color:C.text, marginBottom:4 }}>Jerarquía de Producto</h2>
+    <p style={{ fontSize:11, marginBottom:16, color:C.muted2 }}>5 niveles — el servicio aplica sobre un Bien, una Persona o una Mascota</p>
+    <div className="grid-2">
+      <div>
+        <div className="card" style={{ marginBottom:12 }}>
+          <SecTitle>ÁRBOL DE CONFIGURACIÓN</SecTitle>
+          <TreeNode label="Esquema" sub="Define el proceso y flujo de prestación" color={C.product} icon="Layers">
+            <TreeNode label="Asistencia" sub="Prestación directa por prestador designado por Vaitty" color={C.omni} icon="Wrench" level={1}/>
+            <TreeNode label="Reintegro" sub="3 subtipos: por defecto, por elección, por falta de prestador" color={C.service} icon="RefreshCw" level={1}/>
+            <TreeNode label="Siniestro" sub="Reclamación por daño. Requiere documentación." color={C.finance} icon="AlertTriangle" level={1}/>
+            <TreeNode label="Movilidad" sub="Traslado: bajada de bandera + valor/km + reglas adicionales" color={C.distribution} icon="Navigation" level={1}/>
+          </TreeNode>
+          <Divider/>
+          <TreeNode label="Producto / Póliza" sub="Conjunto de beneficios + tipo de comercialización" color={C.distribution} icon="FileText">
+            <TreeNode label="Mayorista (Bundle)" sub="Embebido en cartera del partner. El partner ya tiene la cartera." color={C.omni} icon="Building2" level={1}/>
+            <TreeNode label="Minorista (Stand-alone)" sub="Venta individual en mostrador. Arranca desde 0 cápitas." color={C.product} icon="CreditCard" level={1}/>
+          </TreeNode>
+          <Divider/>
+          <TreeNode label="Beneficio" sub="Conjunto de servicios + tipo de cobertura. Puede ser combinado." color={C.service} icon="Package" open={false}>
+            <TreeNode label="Wallet: saldo anual + tope por evento" color={C.muted2} level={1}/>
+            <TreeNode label="Events: monto/evento + límite mensual o anual" color={C.muted2} level={1}/>
+            <TreeNode label="km_events: cantidad de eventos dentro de rango km (Movilidad)" color={C.muted2} level={1}/>
+            <TreeNode label="one_time: precio fijo por evento (Telemedicina $25.000, Televeterinaria $25.000)" color={C.muted2} level={1}/>
+          </TreeNode>
+          <Divider/>
+          <TreeNode label="Servicio → Bien / Asset" sub="Aplica sobre: un Bien, una Persona o una Mascota" color={C.omni} icon="Layers" open={false}>
+            <TreeNode label="Un servicio puede cubrir múltiples beneficiarios" color={C.muted2} level={1}/>
+            <TreeNode label="Ej: telemedicina cubre al grupo familiar completo" color={C.muted2} level={1}/>
+            <TreeNode label="Ej: garantía extendida aplica sobre el bien (electrodoméstico)" color={C.muted2} level={1}/>
+          </TreeNode>
+        </div>
+      </div>
+      <div>
+        <div className="card" style={{ marginBottom:12 }}>
+          <SecTitle>VERTICALES</SecTitle>
+          {[
+            {icon:"Home",       label:"Hogar",                   sub:"Emergencias, Mantenimientos, Instalaciones, Experiencias", color:C.product},
+            {icon:"Navigation", label:"Movilidad",               sub:"Emergencias viales, asistencia bicicleta, traslados. Puede incluir GAREX.", color:C.service},
+            {icon:"PawPrint",   label:"Mascotas",                sub:"Televeterinaria ($25.000 fijo), Emergencias veterinarias", color:C.distribution},
+            {icon:"Heart",      label:"Personas",                sub:"Telemedicina ($25.000 fijo), Salud, Bienestar", color:C.provider},
+            {icon:"Laptop",     label:"Dispositivos & Electrod.", sub:"Garantía extendida, reparaciones. Esquema GAREX, service centers especializados.", color:C.finance},
+          ].map((v,i) => (
+            <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'8px 0', borderBottom:i<4?`1px solid ${C.border}`:'none' }}>
+              <div style={{ background:`${v.color}22`, borderRadius:7, padding:6, flexShrink:0 }}><Ico name={v.icon} size={14} color={v.color}/></div>
+              <div>
+                <div style={{ fontSize:11, fontWeight:700, color:v.color }}>{v.label}</div>
+                <div style={{ fontSize:10, color:C.muted2 }}>{v.sub}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="card">
+          <SecTitle>MODELOS DE COBERTURA (Grow Center)</SecTitle>
+          {[
+            {name:"wallet",    icon:"Wallet",    desc:"Saldo anual para cualquier servicio. Tope por evento. Sin límite de cantidad.", color:C.product},
+            {name:"events",    icon:"BarChart3", desc:"Segmentado por categoría. Monto por evento + límite mensual o anual.", color:C.service},
+            {name:"km_events", icon:"Navigation",desc:"Para Movilidad: cantidad de eventos en un rango de km. Tarifación variable.", color:C.distribution},
+            {name:"one_time",  icon:"Zap",       desc:"Precio fijo por evento. Aplica a GAREX, telemedicina, screen repair.", color:C.omni},
+          ].map((m,i) => (
+            <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 0', borderBottom:i<3?`1px solid ${C.border}`:'none' }}>
+              <Ico name={m.icon} size={13} color={m.color}/>
+              <div>
+                <span style={{ fontSize:11, fontWeight:700, color:m.color }}>{m.name} </span>
+                <span style={{ fontSize:10, color:C.muted2 }}>{m.desc}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
+/* ══════════ TAB: PRICING ══════════ */
+const PricingView = () => (
+  <div>
+    <h2 style={{ fontSize:16, fontWeight:800, color:C.text, marginBottom:4 }}>Sistema de Pricing & Cotización</h2>
+    <p style={{ fontSize:11, marginBottom:16, color:C.muted2 }}>Motor de cotización + 8 modelos + flujo de aprobación — todo dentro del Product Engine</p>
+    <div className="card" style={{ border:`1px solid ${C.quotation}44`, marginBottom:16 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12 }}>
+        <Ico name="Calculator" size={17} color={C.quotation}/><span style={{ fontWeight:800, fontSize:13, color:C.quotation }}>Motor de Cotización</span>
+        <Badge color={C.provider}>Hoy solo en Excel</Badge>
+      </div>
+      <div className="grid-3">
+        <div>
+          <SecTitle color={C.quotation}>INPUTS</SecTitle>
+          {["Cápitas (N° de beneficiarios)","Tasa de uso base (% mensual esperado)","Cobertura pretendida por evento","Modelo de negocio (los 8 modelos)","Markup comercial (default 5x)","Comisión canal (máx 55%)","Costo IT por servicio","Costo por FTE de operaciones"].map((x,k)=><Bullet key={k} color={C.quotation}>{x}</Bullet>)}
+        </div>
+        <div>
+          <SecTitle color={C.quotation}>LÓGICA</SecTitle>
+          {["Costo directo = cápitas × tasa uso × cobertura media","Subtotal = costo directo + operación (FTE) + IT + admin","Precio base = subtotal × markup + impuestos","Escalones: precio sube por tramo de tasa de uso real","Comisión: precio final = base / (1 - % comisión)","IPC: nueva versión de lista de precios, no modifica la vigente"].map((x,k)=><Bullet key={k} color={C.quotation}>{x}</Bullet>)}
+        </div>
+        <div>
+          <SecTitle color={C.quotation}>FLUJO DE APROBACIÓN</SecTitle>
+          <FStep icon="Cpu"           label="Mati Business Dev recolecta"   sublabel="Pasos 1-3 del flujo comercial" color={C.accent}/>
+          <FStep icon="Calculator"    label="Motor genera cotización"        sublabel="Precio per cápita + rentabilidad" color={C.quotation}/>
+          <FStep icon="MessageSquare" label="Nadir/Lara revisan"            sublabel="El partner NO ve precios aún" color={C.finance}/>
+          <FStep icon="CheckCircle"   label="Aprobación interna"            sublabel="Vía canal interno" color={C.omni}/>
+          <FStep icon="FileText"      label="Partner recibe propuesta"      sublabel="Con pricing aprobado" color={C.product}/>
+          <FStep icon="CheckCircle"   label="Partner acepta en el sistema"  sublabel="Activa el producto" color={C.green} isLast/>
+        </div>
+      </div>
+    </div>
+    <div className="grid-2">
+      {[
+        {name:"Per cápita flat",       risk:"Alto",       rc:C.provider,    desc:"Precio fijo por beneficiario/mes. Mayor uso real = menor margen Vaitty.",           pn:"Qualia, Galicia, RUS, AON"},
+        {name:"Per cápita escalones",  risk:"Nulo",       rc:C.green,       desc:"Precio sube por tramos de tasa de uso. Es capitado. Modelo propio Vaitty.",         pn:"BBVA", own:true},
+        {name:"Por evento / siniestro",risk:"Nulo",       rc:C.green,       desc:"Vaitty cobra por cada servicio ejecutado. Sin riesgo de frecuencia.",               pn:"Allianz, Hipotecario, Zurich"},
+        {name:"Combinado cápita+evento",risk:"Bajo",      rc:C.service,     desc:"Base fija mensual + cargo variable por ejecución.",                                 pn:"—"},
+        {name:"TPA Standard",          risk:"Compartido", rc:C.distribution,desc:"4 pilares: admin 20-25% + comercial 20-25% + servicios + profit 50/50 neto.",       pn:"SAI, Qualia Servicios"},
+        {name:"TPA GAREX",             risk:"Nulo",       rc:C.green,       desc:"Fee admin % + markup 15% sobre reparaciones. Partner absorbe costo de reparación.", pn:"—"},
+        {name:"GAREX Directo c/seguro",risk:"Acotado",    rc:C.service,     desc:"Vaitty cobra 4-6% del bien. Seguro back cubre 2.5-3%. Vaitty arbitra el spread.",  pn:"—"},
+        {name:"GAREX Directo s/seguro",risk:"Total",      rc:C.provider,    desc:"% del valor del bien sin respaldo de seguro. Riesgo total para Vaitty.",            pn:"—"},
+      ].map((m,i) => (
+        <div key={i} style={{ background:C.card, borderRadius:11, padding:12, borderLeft:`3px solid ${m.rc}` }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:4, flexWrap:'wrap', gap:4 }}>
+            <span style={{ fontSize:12, fontWeight:700, color:C.text }}>{m.name}</span>
+            <div style={{ display:'flex', gap:4 }}>
+              {m.own && <Badge color={C.accent}>PROPIO</Badge>}
+              <Badge color={m.rc}>Riesgo: {m.risk}</Badge>
+            </div>
+          </div>
+          <div style={{ fontSize:10.5, color:C.muted2, marginBottom:2 }}>{m.desc}</div>
+          {m.pn !== "—" && <div style={{ fontSize:10, color:C.muted }}>Partners: {m.pn}</div>}
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+/* ══════════ TAB: COMISIONES ══════════ */
+const CommissionView = () => (
+  <div>
+    <h2 style={{ fontSize:16, fontWeight:800, color:C.text, marginBottom:4 }}>Distribution & Commissions — Solo en Venta</h2>
+    <p style={{ fontSize:11, marginBottom:12, color:C.muted2 }}>Las comisiones ocurren SOLO en el proceso de venta de cobertura.</p>
+    <div style={{ background:`${C.sales}0e`, border:`1px solid ${C.sales}33`, borderRadius:10, padding:12, marginBottom:14, fontSize:11, color:C.text }}>
+      <strong style={{ color:C.sales }}>Regla fundamental: </strong>Las comisiones se generan cuando se vende una cobertura. Cuando el beneficiario usa su cobertura, Vaitty le paga al prestador según el baremo pactado. En ese momento no hay comisiones — la transacción es Vaitty ↔ Prestador.
+    </div>
+    <div className="grid-2" style={{ marginBottom:14 }}>
+      {[
+        { color:C.distribution, title:"Modelo Markup", badge:"Comercializador factura y recauda",
+          desc:"Vaitty y el partner le pasan un precio target al comercializador. El comercializador aplica el markup que quiere y recauda al cliente final.",
+          steps:[{i:"Calculator",l:"Vaitty/partner definen precio target",s:"Costo del servicio + margen Vaitty",c:C.product},{i:"TrendingUp",l:"Comercializador aplica su markup libre",s:"Sin techo definido por Vaitty",c:C.distribution},{i:"CreditCard",l:"Comercializador recauda al cliente",c:C.finance},{i:"GitBranch",l:"Comercializador distribuye comisiones",s:"Interna: sucursales, vendedores",c:C.distribution,last:true}]
+        },
+        { color:C.product, title:"Modelo Comisión", badge:"Vaitty o partner factura",
+          desc:"Vaitty o el partner emiten la factura. Se aplica markup ~200% para generar pricing eficiente que incluya la comisión del canal.",
+          steps:[{i:"Calculator",l:"Precio base Vaitty calculado",c:C.quotation},{i:"TrendingUp",l:"Markup ~200% para pricing eficiente",s:"Da espacio a comisión del canal",c:C.product},{i:"GitBranch",l:"Comisión al partner (máx 55%)",c:C.distribution},{i:"LayoutGrid",l:"TPA: admin + comercial + servicios + profit 50/50",c:C.finance,last:true}]
+        }
+      ].map((m,i) => (
+        <div key={i} className="card" style={{ borderLeft:`3px solid ${m.color}` }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+            <span style={{ fontSize:12, fontWeight:800, color:m.color }}>{m.title}</span>
+            <Badge color={m.color}>{m.badge}</Badge>
+          </div>
+          <p style={{ fontSize:10.5, color:C.text, marginBottom:12, lineHeight:1.5 }}>{m.desc}</p>
+          {m.steps.map((st,j) => <FStep key={j} icon={st.i} label={st.l} sublabel={st.s} color={st.c} isLast={st.last}/>)}
+        </div>
+      ))}
+    </div>
+    <div className="grid-2">
+      <div className="card">
+        <SecTitle>ÁRBOL DE DISTRIBUCIÓN</SecTitle>
+        <TreeNode label="Partner Organización" sub="Aseguradora, banco, financiera, broker, prestadora de servicios" color={C.distribution} icon="Building2">
+          <TreeNode label="Comercializador" sub="Retail, banco sucursal. Puede ser dueño del cliente o tenencia compartida." color={C.product} icon="CreditCard" level={1}>
+            <TreeNode label="Sucursal / Punto de venta / Zona" color={C.service} icon="MapPin" level={2}>
+              <TreeNode label="Vendedor — comisión individual" color={C.omni} icon="Users" level={3}/>
+            </TreeNode>
+          </TreeNode>
+        </TreeNode>
+        <Divider/>
+        <SecTitle>TIPOS DE COMISIÓN</SecTitle>
+        {[
+          {icon:"Zap",       label:"One-shot",         sub:"Pago único al alta. Trigger: on_sale", color:C.omni},
+          {icon:"RefreshCw", label:"Recurring",         sub:"Por ciclo de billing activo. Trigger: on_billing_cycle", color:C.distribution},
+          {icon:"TrendingUp",label:"Combinada",         sub:"One-shot + Recurring simultáneo. Trigger: both", color:C.service},
+          {icon:"BarChart3", label:"Escalonada por volumen",sub:"Diferente % según ventas del período", color:C.product},
+        ].map((t,i) => (
+          <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 0', borderBottom:i<3?`1px solid ${C.border}`:'none' }}>
+            <div style={{ background:`${t.color}22`, borderRadius:7, padding:5 }}><Ico name={t.icon} size={12} color={t.color}/></div>
+            <div>
+              <div style={{ fontSize:11, fontWeight:700, color:t.color }}>{t.label}</div>
+              <div style={{ fontSize:10, color:C.muted2 }}>{t.sub}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="card">
+        <SecTitle>ACTIVACIÓN DE BENEFICIARIO</SecTitle>
+        {[
+          {label:"Mayorista",who:"API / SFTP del partner (batch de altas)",color:C.distribution},
+          {label:"Minorista — recauda Vaitty",who:"Vaitty en checkout",color:C.product},
+          {label:"Minorista — recauda comercializador",who:"Comercializador → Webhook/SFTP",color:C.service},
+          {label:"Minorista — recauda prestadora (SAI, Qualia)",who:"Prestadora → Webhook/SFTP",color:C.finance},
+        ].map((f,i) => (
+          <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:8, padding:'7px 0', borderBottom:i<3?`1px solid ${C.border}`:'none' }}>
+            <div style={{ width:7, height:7, borderRadius:'50%', background:f.color, flexShrink:0, marginTop:3 }}/>
+            <div><span style={{ fontSize:11, fontWeight:700, color:f.color }}>{f.label} </span><span style={{ fontSize:10, color:C.muted2 }}>{f.who}</span></div>
+          </div>
+        ))}
+        <div style={{ marginTop:10, padding:'7px 9px', borderRadius:8, background:`${C.service}0e`, fontSize:10, color:C.service }}>
+          Activación inmediata o con carencia configurable. Ciclo de recaudación minorista: 1 al 10 de cada mes.
+        </div>
+        <Divider/>
+        <SecTitle>TENENCIA DEL CLIENTE</SecTitle>
+        <Bullet color={C.product}>Exclusiva del comercializador: el partner solo ve agregados, no datos individuales</Bullet>
+        <Bullet color={C.distribution}>Tenencia compartida: partner y comercializador tienen acceso bajo acuerdo contractual</Bullet>
+      </div>
+    </div>
+  </div>
+);
+
+/* ══════════ TAB: CICLO DE SERVICIO ══════════ */
+const LifecycleView = () => (
+  <div>
+    <h2 style={{ fontSize:16, fontWeight:800, color:C.text, marginBottom:4 }}>Ciclo de Vida del Servicio</h2>
+    <p style={{ fontSize:11, marginBottom:12, color:C.muted2 }}>Service Orchestration — Omnichannel Hub como componente interno — Mundo 2</p>
+    <div style={{ background:`${C.service}0e`, border:`1px solid ${C.service}33`, borderRadius:10, padding:12, marginBottom:14, fontSize:11, color:C.text }}>
+      <strong style={{ color:C.service }}>Omnichannel Hub (interno): </strong>
+      <strong style={{ color:C.accent }}>Beneficiario</strong> — WhatsApp, IVR, Portal autogestión, API white-label del partner.
+      <strong style={{ color:C.provider }}> Prestador</strong> — WhatsApp (chat operativo) y App del Prestador. Ambos lados se normalizan al mismo formato. El estado del servicio es la fuente de verdad para todos los canales.
+    </div>
+    <div className="grid-3">
+      <div className="card">
+        <Badge color={C.omni}>ASISTENCIA DIRECTA</Badge>
+        <div style={{ marginTop:12 }}>
+          <FStep icon="MessageSquare" label="Solicitud"               sublabel="Cualquier canal del beneficiario"     color={C.omni}/>
+          <FStep icon="Lock"          label="Beneficiario validado"   sublabel="Identidad + cobertura activa"         color={C.identity}/>
+          <FStep icon="Shield"        label="Cobertura verificada"    sublabel="Saldo o eventos disponibles"          color={C.product}/>
+          <FStep icon="Users"         label="Prestador asignado"      sublabel="Zona + precio + performance"          color={C.provider}/>
+          <FStep icon="FileText"      label="ServiceAuthorization"    sublabel="Al prestador: monto Vaitty + excedente máx." color={C.quotation}/>
+          <FStep icon="Smartphone"    label="Prestador acepta"        sublabel="App o WhatsApp"                       color={C.provider}/>
+          <FStep icon="Wrench"        label="Servicio en ejecución"                                                   color={C.service}/>
+          <FStep icon="CreditCard"    label="Prestador cobra excedente" sublabel="Directo al beneficiario, en el momento" color={C.provider}/>
+          <FStep icon="CheckCircle"   label="Servicio completado"     sublabel="Beneficiario confirma"                color={C.green}/>
+          <FStep icon="DollarSign"    label="Proceso de transacción"  sublabel="Registro interno Vaitty"              color={C.finance}/>
+          <FStep icon="Wallet"        label="Cobertura consumida"     sublabel="Deducción wallet / events"            color={C.product}/>
+          <FStep icon="FileText"      label="Prestador factura acumulada" sublabel="N servicios del período → Vaitty" color={C.finance}/>
+          <FStep icon="CheckCircle"   label="Vaitty concilia y paga"  sublabel="Contra procesos de transacción"       color={C.omni} isLast/>
+        </div>
+      </div>
+      <div className="card">
+        <Badge color={C.service}>REINTEGRO</Badge>
+        <div style={{ marginTop:12 }}>
+          <FStep icon="MessageSquare" label="Solicitud"                                                               color={C.omni}/>
+          <FStep icon="Lock"          label="Beneficiario validado"                                                   color={C.identity}/>
+          <FStep icon="Settings"      label="Tipo de reintegro"       sublabel="Defecto / Elección / Sin prestador"   color={C.service}/>
+          <FStep icon="AlertTriangle" label="Sin prestador → ALERTA"  sublabel="Zona + servicio → Área de Red"        color={C.provider}/>
+          <FStep icon="Clock"         label="Beneficiario notifica"   sublabel="Dentro de 72hs del evento"            color={C.service}/>
+          <FStep icon="FileText"      label="Comprobantes"            sublabel="Dentro de 7 días corridos"            color={C.service}/>
+          <FStep icon="Shield"        label="Anti-fraude"             sublabel="ARCA + detector duplicados"           color={C.finance}/>
+          <FStep icon="CheckCircle"   label="Reintegro aprobado"                                                      color={C.omni}/>
+          <FStep icon="DollarSign"    label="Reintegro emitido"       sublabel="Dentro de 72hs hábiles"               color={C.finance}/>
+          <FStep icon="Wallet"        label="Cobertura consumida"                                                     color={C.product} isLast/>
+        </div>
+      </div>
+      <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+        <div className="card">
+          <Badge color={C.provider}>EXCEDENTE & FACTURACIÓN</Badge>
+          <div style={{ marginTop:10 }}>
+            {[
+              {label:"Costo total del servicio",               val:"$55.000", color:C.product},
+              {label:"Cobertura Vaitty (baremo)",              val:"$40.000", color:C.omni},
+              {label:"Excedente → beneficiario paga al prestador YA", val:"$15.000", color:C.provider},
+            ].map((r,i) => (
+              <div key={i} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'6px 8px', borderRadius:7, background:`${r.color}0e`, marginBottom:4 }}>
+                <span style={{ fontSize:10, color:C.text }}>{r.label}</span>
+                <span style={{ fontSize:11, fontWeight:700, color:r.color }}>{r.val}</span>
+              </div>
+            ))}
+            <div style={{ padding:'6px 8px', borderRadius:7, background:`${C.quotation}0e`, fontSize:10, color:C.quotation, marginTop:4 }}>ServiceAuthorization al prestador: (a) monto Vaitty y (b) máximo al beneficiario. Antes de ejecutar.</div>
+          </div>
+        </div>
+        <div className="card">
+          <Badge color={C.distribution}>BENEFICIO COMBINADO</Badge>
+          <div style={{ marginTop:8, fontSize:11, color:C.text, lineHeight:1.5, marginBottom:8 }}>Un requerimiento puede disparar múltiples ServiceItems con distintos prestadores. Hoy se hace manual.</div>
+          {["ServiceRequest contiene N ServiceItems","Cada ServiceItem tiene su prestador y autorización","Proceso de transacción por ítem, agrupado en el Request","Cobertura se consume por ítem según su tipo"].map((s,i)=><Bullet key={i} color={C.distribution}>{s}</Bullet>)}
+        </div>
+        <div className="card">
+          <Badge color={C.accent}>SLAs</Badge>
+          <div style={{ marginTop:8 }}>
+            {["24/7 / 365 días","80% llamadas < 20 seg","Emergencias: máxima celeridad","Programados: 10 días corridos","Reintegro notif: 72hs del evento","Reintegro pago: 72hs hábiles"].map((s,i) => (
+              <div key={i} style={{ display:'flex', alignItems:'center', gap:7, padding:'3px 0' }}>
+                <Ico name="CheckCircle" size={11} color={C.omni}/><span style={{ fontSize:11, color:C.text }}>{s}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
+/* ══════════ TAB: REGLAS ══════════ */
+const RulesView = () => (
+  <div>
+    <h2 style={{ fontSize:16, fontWeight:800, color:C.text, marginBottom:14 }}>Reglas del Sistema & Roles por Sistema</h2>
+    <div className="grid-2" style={{ marginBottom:14 }}>
+      <div className="card">
+        <SecTitle>MULTI-TENANT & MULTI-PAÍS</SecTitle>
+        {[
+          {icon:"DollarSign",label:"Moneda",       desc:"ARS activo. EUR, USD, PYG: modelo de datos preparado."},
+          {icon:"Globe",     label:"Países",       desc:"AR activo. ES y PY: estructura legal lista. Sin soporte en sistema aún."},
+          {icon:"Building2", label:"Tenancy",      desc:"Cada partner = 1 tenant. Vaitty admin ve todos."},
+          {icon:"Users",     label:"Multi-producto",desc:"Un beneficiario puede tener coberturas con múltiples partners simultáneamente."},
+          {icon:"TrendingUp",label:"Ajuste IPC",   desc:"Configurable: mensual, trimestral, semestral, anual, ninguno. Nueva versión de lista de precios."},
+          {icon:"Package",   label:"Versionado",   desc:"Cambios del partner aplican a nuevas altas. Beneficiarios activos quedan en su versión hasta renovación."},
+        ].map((r,i) => (
+          <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'6px 0', borderBottom:i<5?`1px solid ${C.border}`:'none' }}>
+            <Ico name={r.icon} size={13} color={C.accent} style={{ marginTop:2 }}/>
+            <div>
+              <div style={{ fontSize:11, fontWeight:700, color:C.text }}>{r.label}</div>
+              <div style={{ fontSize:10, color:C.muted2 }}>{r.desc}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="card">
+        <SecTitle>ANTI-FRAUDE</SecTitle>
+        {[
+          {label:"ARCA (AFIP)",          desc:"Validación de comprobantes fiscales.",        status:"En construcción", color:C.service},
+          {label:"Detector duplicados",  desc:"Mismo servicio, domicilio, período cercano.", status:"En construcción", color:C.service},
+          {label:"ServiceAuthorization", desc:"Montos al prestador antes de ejecutar.",      status:"Por diseñar",     color:C.provider},
+          {label:"Scoring de riesgo",    desc:"ML sobre patrones de uso anómalo.",            status:"Roadmap",         color:C.muted2},
+        ].map((r,i) => (
+          <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'7px 0', borderBottom:i<3?`1px solid ${C.border}`:'none' }}>
+            <Ico name="Shield" size={13} color={r.color} style={{ marginTop:2 }}/>
+            <div style={{ flex:1 }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                <span style={{ fontSize:11, fontWeight:700, color:C.text }}>{r.label}</span>
+                <Badge color={r.color}>{r.status}</Badge>
+              </div>
+              <div style={{ fontSize:10, color:C.muted2 }}>{r.desc}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+    <div className="card">
+      <SecTitle>ROLES POR SISTEMA</SecTitle>
+      <div className="grid-3" style={{ marginBottom:14 }}>
+        {[
+          {system:"Partner Grow Center",      color:C.omni,   icon:"Monitor",      sub:"Solo configuración de producto",
+           roles:[{r:"Admin Vaitty",s:"Catálogo maestro, reglas globales, todos los tenants"},{r:"Analista de producto Vaitty",s:"Servicios, assets, especialidades, beneficios, coberturas"},{r:"Admin Partner Org",s:"Configura SUS productos dentro del catálogo Vaitty"}]},
+          {system:"Partner Service Tracking", color:C.service, icon:"Activity",     sub:"Seguimiento de servicios",
+           roles:[{r:"Resp. calidad del partner",s:"Ve servicios activos, SLAs, calidad de prestadores"},{r:"Agente de seguimiento Vaitty",s:"Monitoreo operativo, gestión de incidentes"},{r:"Team Leader Vaitty",s:"Supervisa agentes, métricas globales"},{r:"Beneficiario",s:"Autogestión: solicitar servicio, ver historial"}]},
+          {system:"Partner Sales Manager",    color:C.sales,  icon:"ShoppingCart", sub:"Ventas y comisiones",
+           roles:[{r:"Admin Comercializador",s:"Gestiona su cartera, sucursales, vendedores, comisiones"},{r:"Supervisor de Sucursal/Zona",s:"Performance de su equipo de ventas"},{r:"Vendedor",s:"Alta de beneficiarios, sus comisiones devengadas"}]},
+        ].map((sys,i) => (
+          <div key={i}>
+            <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8, padding:'5px 8px', borderRadius:8, background:`${sys.color}1a` }}>
+              <Ico name={sys.icon} size={12} color={sys.color}/>
+              <div>
+                <div style={{ fontSize:10, fontWeight:800, color:sys.color }}>{sys.system}</div>
+                <div style={{ fontSize:9, color:C.muted2 }}>{sys.sub}</div>
+              </div>
+            </div>
+            {sys.roles.map((r,j) => (
+              <div key={j} style={{ display:'flex', alignItems:'flex-start', gap:6, padding:'3px 0' }}>
+                <div style={{ width:4, height:4, borderRadius:'50%', background:sys.color, flexShrink:0, marginTop:4 }}/>
+                <div>
+                  <div style={{ fontSize:10, fontWeight:700, color:C.text }}>{r.r}</div>
+                  <div style={{ fontSize:9.5, color:C.muted2 }}>{r.s}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="grid-2">
+        {[
+          {system:"Service Orchestration + App Prestador", color:C.provider,
+           roles:[{r:"Prestador",s:"Asignaciones, ServiceAuthorizations, estados, chat WhatsApp"},{r:"Ejecutivo de prestadores Vaitty",s:"Onboarding, baremos, rendimiento de red"}]},
+          {system:"Finance & Treasury",color:C.finance,
+           roles:[{r:"Tesorero",s:"Conciliación, pagos a prestadores, reintegros"},{r:"Analista de liquidaciones",s:"Aprobación de facturas acumuladas del prestador"},{r:"Analista anti-fraude",s:"Revisión alertas ARCA y patrones sospechosos"},{r:"Admin de comisiones",s:"Cierre de período, liquidación de la cadena de ventas"}]},
+        ].map((sys,i) => (
+          <div key={i}>
+            <div style={{ fontSize:10, fontWeight:700, marginBottom:8, padding:'4px 8px', borderRadius:7, background:`${sys.color}1a`, color:sys.color }}>{sys.system}</div>
+            {sys.roles.map((r,j) => (
+              <div key={j} style={{ display:'flex', alignItems:'flex-start', gap:6, padding:'3px 0' }}>
+                <div style={{ width:4, height:4, borderRadius:'50%', background:sys.color, flexShrink:0, marginTop:4 }}/>
+                <div>
+                  <div style={{ fontSize:10, fontWeight:700, color:C.text }}>{r.r}</div>
+                  <div style={{ fontSize:9.5, color:C.muted2 }}>{r.s}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  </div>
+);
+
+/* ══════════ TAB: ROADMAP ══════════ */
+const RoadmapView = () => (
+  <div>
+    <h2 style={{ fontSize:16, fontWeight:800, color:C.text, marginBottom:4 }}>Hoja de Ruta — Decisión Estratégica</h2>
+    <p style={{ fontSize:11, marginBottom:14, color:C.muted2 }}>No es un plan de pasos. Es una decisión con trade-offs claros.</p>
+    <div style={{ background:`${C.accent}0e`, border:`1px dashed ${C.accent}44`, borderRadius:12, padding:14, marginBottom:16, textAlign:'center' }}>
+      <Ico name="HelpCircle" size={20} color={C.accent} style={{ margin:'0 auto 8px' }}/>
+      <div style={{ fontSize:13, fontWeight:800, color:C.accent }}>La decisión estratégica central</div>
+      <div style={{ fontSize:11, marginTop:4, color:C.text }}>¿Construir sistema nuevo (integrar datos históricos en Data Lake) o evolucionar el monolito existente?</div>
+    </div>
+    <div className="grid-2" style={{ marginBottom:16 }}>
+      {[
+        { color:C.accent, icon:"Cpu", title:"OPCIÓN A — Sistema nuevo, AI-first", tag:"4 AI Engineers + agentes especializados por dominio",
+          desc:"Arquitectura limpia desde el día 1. El monolito sigue en producción durante la transición. Los datos históricos migran al Data Lake.",
+          pros:["Velocidad 3-5x con AI-assisted development","Sin deuda técnica heredada","Data Lake unificado habilita cruce con 8 años de datos","Cada dominio construido con un agente especializado en paralelo"],
+          cons:["Dos sistemas en paralelo durante la transición","Migración de datos requiere validación cuidadosa","El monolito se debe mantener mientras se construye el nuevo"],
+        },
+        { color:C.distribution, icon:"Settings", title:"OPCIÓN B — Evolucionar el monolito", tag:"Equipo con curva de aprendizaje sobre código actual",
+          desc:"Refactorizar el monolito hacia la arquitectura propuesta. El Grow Center ya migrado sirve como base del Product Engine.",
+          pros:["No hay migración masiva de datos","La lógica operativa ya funciona en producción","Menos riesgo de interrupción de servicio","El equipo conoce el código base"],
+          cons:["Deuda técnica del monolito limita la velocidad","Refactorizar mientras se opera es complejo","Los datos históricos igual necesitan un modelo nuevo","La arquitectura propuesta es difícil de llegar desde el monolito sin romper cosas"],
+        }
+      ].map((opt,i) => (
+        <div key={i} style={{ background:C.card, borderRadius:14, padding:16, borderTop:`3px solid ${opt.color}` }}>
+          <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:8 }}>
+            <Ico name={opt.icon} size={16} color={opt.color}/>
+            <div style={{ fontWeight:800, fontSize:12, color:opt.color }}>{opt.title}</div>
+          </div>
+          <Tag color={opt.color}>{opt.tag}</Tag>
+          <p style={{ fontSize:10.5, marginTop:8, marginBottom:10, color:C.muted2, lineHeight:1.5 }}>{opt.desc}</p>
+          <SecTitle color={C.green}>A FAVOR</SecTitle>
+          {opt.pros.map((v,j) => <Bullet key={j} color={C.green}>{v}</Bullet>)}
+          <SecTitle color={C.provider} mt={8}>EN CONTRA</SecTitle>
+          {opt.cons.map((r,j) => <Bullet key={j} color={C.provider}>{r}</Bullet>)}
+        </div>
+      ))}
+    </div>
+    <div style={{ background:`${C.quotation}0e`, border:`1px solid ${C.quotation}33`, borderRadius:12, padding:14, marginBottom:14 }}>
+      <div style={{ display:'flex', alignItems:'flex-start', gap:8 }}>
+        <Ico name="TrendingUp" size={14} color={C.quotation} style={{ marginTop:2 }}/>
+        <div style={{ fontSize:11, color:C.text, lineHeight:1.55 }}>
+          <strong style={{ color:C.quotation }}>Recomendación: </strong>
+          La Opción A tiene sentido dado el nivel de deuda técnica y el estado del arte en desarrollo AI. El Grow Center ya migrado es la base del Product Engine. El punto de inflexión es si hay 4 ingenieros disponibles para supervisar agentes de construcción concurrentes.
+        </div>
+      </div>
+    </div>
+    <div className="grid-4" style={{ marginBottom:14 }}>
+      {[
+        {label:"Monolito backend",           status:"En producción",         color:C.service},
+        {label:"Grow Center",                status:"Migrado — validar",     color:C.service},
+        {label:"K8s infra",                  status:"Lista, sin servicios",  color:C.omni},
+        {label:"Anti-fraude",                status:"En construcción",       color:C.service},
+        {label:"Distribution & Commissions", status:"No en sistema",         color:C.provider},
+        {label:"Motor de cotización",        status:"Solo en Excel",         color:C.provider},
+        {label:"Partner config",             status:"No implementado",       color:C.provider},
+        {label:"Data histórica",             status:"8 años disponibles",    color:C.omni},
+      ].map((s,i) => (
+        <div key={i} style={{ padding:'8px 10px', borderRadius:9, background:`${s.color}0e`, border:`1px solid ${s.color}33` }}>
+          <div style={{ fontSize:10, fontWeight:700, color:C.text }}>{s.label}</div>
+          <div style={{ fontSize:9.5, color:s.color, marginTop:2 }}>{s.status}</div>
+        </div>
+      ))}
+    </div>
+    <div className="card">
+      <SecTitle>TRACK RECORD — 14+ PARTNERS, 8 AÑOS</SecTitle>
+      <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:6 }}>
+        {["Qualia (2021)","Galicia (2022)","BBVA (2024)","Allianz (2023)","RUS (2021)","Hipotecario (2023)","Fedpat (2024)","Zurich/Santander (2023)","AON (2025)","Sancor/Bancor (2025)","La Caja","Meridional","Supervielle","Opción Seguros"].map((p,i) => (
+          <span key={i} style={{ padding:'3px 9px', borderRadius:6, fontSize:10, background:`${C.accent}0e`, color:C.accent, border:`1px solid ${C.accent}33` }}>{p}</span>
+        ))}
+      </div>
+    </div>
+  </div>
+);
+
+/* ══════════ BUSINESS MODEL CANVAS ══════════ */
+function CanvasView() {
+  const blocks = [
+    {
+      id:"kp", area:"kp", label:"🤝 Key Partners", color:"#0ea5e9",
+      items:[
+        { title:"Red de Prestadores", desc:"Plomeros, electricistas, cerrajeros, gasistas, vidrieros, técnicos de AC matriculados y auditados" },
+        { title:"Partners Comerciales", desc:"Aseguradoras (Qualia, Allianz, RUS, AON), Bancos (Galicia, BBVA, Hipotecario), Financieras/Retail (Cencosud)" },
+        { title:"Proveedores Tecnológicos", desc:"Anthropic (IA), Meta (WhatsApp API), infra cloud, pasarelas de pago" },
+        { title:"Gestores TPA", desc:"SAI, Qualia Servicios — administración de siniestros y servicios en modalidad TPA" },
+      ]
+    },
+    {
+      id:"ka", area:"ka", label:"⚙️ Key Activities", color:"#8b5cf6",
+      items:[
+        { title:"Coordinación de Servicios 24/365", desc:"Recepción, dispatch y seguimiento de solicitudes en tiempo real" },
+        { title:"Gestión de Red de Prestadores", desc:"Incorporación, auditoría, baremos, posicionamiento por precio de referencia" },
+        { title:"Diseño y Configuración de Producto", desc:"Grow Center: creación de beneficios, coberturas, listas de precios por partner" },
+        { title:"Comercialización B2B", desc:"Proceso de venta con Mati + equipo comercial: intake, cotización, propuesta, T&C" },
+        { title:"Operaciones y Liquidaciones", desc:"Conciliación de transacciones, pago a prestadores, comisiones a canales" },
+      ]
+    },
+    {
+      id:"vp", area:"vp", label:"💎 Value Propositions", color:"#f59e0b",
+      items:[
+        { title:"Para Partners (B2B)", desc:"Monetización sin operaciones: ofrecen servicios de asistencia sin construir la red ni gestionar la operación. Producto configurable, white label, integrable por API." },
+        { title:"Para Beneficiarios (B2C)", desc:"Asistencia confiable y tecnológica 24/7 en hogar, movilidad, mascotas y salud. Un solo canal (WhatsApp, IVR, portal) para cualquier emergencia o servicio programado." },
+        { title:"Diferenciador Operativo", desc:"8 años de data histórica, algoritmo de posicionamiento de prestadores, cobertura multi-vertical desde un solo contrato, SLA del 80% de llamadas en <20 seg." },
+        { title:"Flexibilidad de Producto", desc:"Wallet, por eventos, escalones, TPA, GAREX — cualquier modelo de cobertura y precio adaptado al partner." },
+      ]
+    },
+    {
+      id:"cr", area:"cr", label:"🔗 Customer Relationships", color:"#10b981",
+      items:[
+        { title:"Partner: Mati (Agente BI)", desc:"WhatsApp + chat — acompaña comercialmente y entrega indicadores operativos" },
+        { title:"Partner: Portal Partners", desc:"Grow Center, Service Tracking, Sales Manager — una plataforma, tres vistas" },
+        { title:"Beneficiario: WhatsApp Bot", desc:"Canal estructurado 24/7 (en redefinición hacia NLP)" },
+        { title:"Beneficiario: IVR / Contact Center", desc:"Atención telefónica con SLA estricto" },
+        { title:"Prestador: WhatsApp Bot", desc:"Alta, notificaciones, métricas, consultas" },
+      ]
+    },
+    {
+      id:"cs", area:"cs", label:"🎯 Customer Segments", color:"#ef4444",
+      items:[
+        { title:"Aseguradoras", desc:"Qualia, Allianz, RUS, AON, Zurich, Sancor — embeben asistencia en pólizas de hogar, vida, auto" },
+        { title:"Bancos", desc:"Galicia, BBVA, Hipotecario, Supervielle — como beneficio de tarjeta o cuenta" },
+        { title:"Financieras y Retail", desc:"Cencosud, Compre Directo — upsale en punto de venta, stand-alone de alto volumen y bajo precio" },
+        { title:"Brokers / Real Estate / ART", desc:"Segmentos emergentes con necesidades de asistencia especializada" },
+        { title:"Beneficiarios Finales", desc:"+500K beneficiarios administrados — personas que usan el servicio, no el cliente directo" },
+      ]
+    },
+    {
+      id:"kr", area:"kr", label:"🏗️ Key Resources", color:"#06b6d4",
+      items:[
+        { title:"Red de Prestadores Calificados", desc:"Principal activo operativo — sin red no hay servicio. Construida en 8 años." },
+        { title:"Plataforma Tecnológica", desc:"Event Bus, microservicios, Grow Center, app prestador, portales — built for multi-tenancy" },
+        { title:"Data Histórica (8 años)", desc:"Baremos, tasas de uso, siniestralidad por zona — ventaja competitiva para pricing y predicción" },
+        { title:"Contratos y Relaciones B2B", desc:"20+ partners activos; contratos a largo plazo como base de ingresos recurrentes" },
+        { title:"Equipo Operativo y Comercial", desc:"FTE de coordinación + Mati como agente IA comercial" },
+      ]
+    },
+    {
+      id:"ch", area:"ch", label:"📡 Channels", color:"#84cc16",
+      items:[
+        { title:"API White Label", desc:"Integración directa en app/web del partner — experiencia 100% del partner" },
+        { title:"WhatsApp Oficial Certificado", desc:"3 números distintos: beneficiario / prestador / partner+Mati" },
+        { title:"Portal de Autogestión", desc:"Web para beneficiarios — alta, solicitudes, seguimiento" },
+        { title:"IVR + Contact Center Exclusivo", desc:"Canal telefónico dedicado, 80% atendido en <20 seg" },
+        { title:"Portal Partners", desc:"partners.vaitty.com.ar — Grow Center + Service Tracking + Sales Manager" },
+      ]
+    },
+    {
+      id:"cost", area:"cost", label:"💸 Cost Structure", color:"#94a3b8",
+      items:[
+        { title:"Prestadores (costo variable principal)", desc:"Baremo por servicio ejecutado — el mayor componente del costo operativo" },
+        { title:"Equipo Operativo (FTE)", desc:"Coordinadores, supervisores de calidad, soporte — costo mensual fijo" },
+        { title:"Tecnología e Infraestructura", desc:"Cloud, APIs (Meta, Anthropic), desarrollo — costo IT por servicio + base fija" },
+        { title:"Administración y Compliance", desc:"Legal, antifraude (ARCA), contratos, auditoría" },
+        { title:"Comisiones Canal (hasta 55%)", desc:"Revenue share con el partner sobre el precio al beneficiario" },
+      ]
+    },
+    {
+      id:"rev", area:"rev", label:"💰 Revenue Streams", color:"#f59e0b",
+      items:[
+        { title:"Per Cápita Flat", desc:"Ingreso mensual fijo por beneficiario — Qualia, Galicia, RUS, AON. Mayor riesgo para Vaitty." },
+        { title:"Per Cápita Escalones", desc:"Precio sube por tramo de uso — BBVA. Riesgo cero para Vaitty." },
+        { title:"Por Evento / Siniestro", desc:"Cobro por servicio ejecutado — Allianz, Zurich. Riesgo nulo." },
+        { title:"TPA Standard", desc:"Fee admin + profit 50/50 neto — SAI, Qualia Servicios. Riesgo compartido." },
+        { title:"GAREX (Garantía Extendida)", desc:"Fee sobre valor del bien ± respaldo de seguro — Hipotecario. Arbitraje del spread." },
+        { title:"Markup Stand-alone", desc:"Producto vendido directamente al beneficiario vía partner; Vaitty fija precio base y el partner agrega margen." },
+      ]
+    },
+  ];
+
+  const gridStyle = {
+    display:'grid',
+    gridTemplateColumns:'repeat(5, 1fr)',
+    gridTemplateRows:'auto auto auto',
+    gridTemplateAreas:`
+      "kp ka vp cr cs"
+      "kp kr vp ch cs"
+      "cost cost cost rev rev"
+    `,
+    gap:10,
+    padding:'0 4px 16px',
+  };
+
+  const areaStyle = {
+    kp:'kp', ka:'ka', vp:'vp', cr:'cr', cs:'cs',
+    kr:'kr', ch:'ch', cost:'cost', rev:'rev',
+  };
+
+  return (
+    <div style={{ padding:'20px 16px 32px', maxWidth:1400, margin:'0 auto' }}>
+      {/* Header */}
+      <div style={{ marginBottom:20, textAlign:'center' }}>
+        <div style={{ fontSize:18, fontWeight:800, color:'#f8fafc', marginBottom:4 }}>Business Model Canvas</div>
+        <div style={{ fontSize:12, color:C.muted }}>Vaitty · FAST HOME SERVICES S.A.S · Abril 2026 · Confidencial</div>
+        <div style={{ display:'flex', justifyContent:'center', gap:16, marginTop:10 }}>
+          {[
+            { label:'20+ Partners activos', color:C.accent },
+            { label:'4 Verticales', color:'#8b5cf6' },
+            { label:'8 Años de operación', color:'#10b981' },
+            { label:'Modelos de precio flexibles', color:'#f59e0b' },
+          ].map((b,i) => (
+            <span key={i} style={{ fontSize:10, padding:'3px 10px', borderRadius:20, background:`${b.color}18`, color:b.color, border:`1px solid ${b.color}44`, fontWeight:600 }}>{b.label}</span>
+          ))}
+        </div>
+      </div>
+
+      {/* BMC Grid */}
+      <div style={gridStyle}>
+        {blocks.map(bl => (
+          <div key={bl.id} style={{
+            gridArea: areaStyle[bl.id],
+            background:'#0f172a',
+            border:`1px solid ${bl.color}44`,
+            borderTop:`3px solid ${bl.color}`,
+            borderRadius:10,
+            padding:14,
+            display:'flex',
+            flexDirection:'column',
+            gap:8,
+          }}>
+            <div style={{ fontSize:12, fontWeight:800, color:bl.color, letterSpacing:'0.02em', marginBottom:2 }}>{bl.label}</div>
+            {bl.items.map((item,i) => (
+              <div key={i} style={{ background:`${bl.color}0a`, border:`1px solid ${bl.color}22`, borderRadius:7, padding:'7px 10px' }}>
+                <div style={{ fontSize:10, fontWeight:700, color:'#e2e8f0', marginBottom:2 }}>{item.title}</div>
+                <div style={{ fontSize:9.5, color:C.muted, lineHeight:1.5 }}>{item.desc}</div>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+
+      {/* Business Model Summary */}
+      <div style={{ marginTop:20, background:'#0f172a', border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
+        <div style={{ fontSize:13, fontWeight:700, color:'#f8fafc', marginBottom:14 }}>📊 Modelos de precio por tipo de partner</div>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:10 }}>
+          {[
+            { modelo:'Per Cápita Flat', riesgo:'Alto', partners:'Qualia, Galicia, RUS, AON', desc:'Ingreso predecible, exposición a alta siniestralidad', color:'#ef4444' },
+            { modelo:'Per Cápita Escalones', riesgo:'Nulo', partners:'BBVA', desc:'A mayor uso, mayor cobro. Riesgo cero para Vaitty', color:'#10b981' },
+            { modelo:'Por Evento', riesgo:'Nulo', partners:'Allianz, Zurich, Hipotecario', desc:'Solo se cobra cuando hay servicio ejecutado', color:'#10b981' },
+            { modelo:'TPA Standard', riesgo:'Compartido', partners:'SAI, Qualia Servicios', desc:'Fee admin 20-25% + costo servicios + profit 50/50 neto', color:'#f59e0b' },
+            { modelo:'GAREX', riesgo:'Acotado', partners:'Hipotecario', desc:'4-6% del valor del bien; spread entre retail y seguro', color:'#06b6d4' },
+            { modelo:'Stand-alone / Markup', riesgo:'Bajo', partners:'Retail / Financieras', desc:'Precio base Vaitty × markup partner; comisión máx 55%', color:'#8b5cf6' },
+          ].map((m,i) => (
+            <div key={i} style={{ background:`${m.color}0c`, border:`1px solid ${m.color}33`, borderRadius:8, padding:12 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+                <div style={{ fontSize:10, fontWeight:800, color:m.color }}>{m.modelo}</div>
+                <span style={{ fontSize:8, padding:'2px 6px', borderRadius:10, background:`${m.color}22`, color:m.color, fontWeight:700 }}>Riesgo: {m.riesgo}</span>
+              </div>
+              <div style={{ fontSize:9, color:'#94a3b8', marginBottom:4 }}><span style={{ color:'#cbd5e1', fontWeight:600 }}>Partners: </span>{m.partners}</div>
+              <div style={{ fontSize:9, color:C.muted, lineHeight:1.5 }}>{m.desc}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Verticales y Cobertura */}
+      <div style={{ marginTop:12, display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:10 }}>
+        {[
+          { v:'🏠 Hogar', color:C.accent, cats:['Emergencias','Mantenimientos','Instalaciones','Experiencias'], uso:'1.3% mensual', price:'$15–$600+ per cápita' },
+          { v:'🐾 Mascotas', color:'#f97316', cats:['Televeterinaria ($25K fijo)','Emergencias veterinarias'], uso:'2.0–5.0% mensual', price:'$577–$2.785+ per cápita' },
+          { v:'🚗 Movilidad', color:'#8b5cf6', cats:['Emergencias viales','Asistencia bicicleta'], uso:'0.5–1.0% mensual', price:'Referencia baja' },
+          { v:'👤 Personas', color:'#10b981', cats:['Telemedicina ($25K fijo)','Salud','Bienestar'], uso:'Variable', price:'$25K/evento fijo (tele)' },
+        ].map((vt,i) => (
+          <div key={i} style={{ background:`${vt.color}0c`, border:`1px solid ${vt.color}33`, borderRadius:8, padding:12 }}>
+            <div style={{ fontSize:11, fontWeight:800, color:vt.color, marginBottom:8 }}>{vt.v}</div>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginBottom:8 }}>
+              {vt.cats.map((c,j) => <span key={j} style={{ fontSize:9, padding:'2px 6px', borderRadius:4, background:`${vt.color}18`, color:vt.color, border:`1px solid ${vt.color}33` }}>{c}</span>)}
+            </div>
+            <div style={{ fontSize:9, color:C.muted }}><span style={{ color:'#94a3b8' }}>Uso típico: </span>{vt.uso}</div>
+            <div style={{ fontSize:9, color:C.muted }}><span style={{ color:'#94a3b8' }}>Precio: </span>{vt.price}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════ TABS CONFIG ══════════ */
+const TABS = [
+  { id:"map",        icon:"Network",    label:"Plataforma"  },
+  { id:"twoworlds",  icon:"Split",      label:"2 Mundos"    },
+  { id:"product",    icon:"Package",    label:"Producto"    },
+  { id:"pricing",    icon:"Calculator", label:"Pricing"     },
+  { id:"commission", icon:"GitBranch",  label:"Comisiones"  },
+  { id:"lifecycle",  icon:"Wrench",     label:"Servicio"    },
+  { id:"rules",      icon:"Settings",   label:"Reglas"      },
+  { id:"roadmap",    icon:"TrendingUp", label:"Roadmap"     },
+  { id:"canvas",     icon:"LayoutGrid", label:"BMC"         },
+];
+
+/* ══════════ MAIN APP ══════════ */
+function VaittySystemMap() {
+  const [tab, setTab] = useState("map");
+
+  return (
+    <div style={{ minHeight:'100vh', background:C.bg }}>
+
+      {/* STICKY HEADER */}
+      <div className="app-header">
+        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+          <div style={{ width:34, height:34, borderRadius:10, background:'linear-gradient(135deg,#0ea5e9,#38bdf8)', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:900, fontSize:15, color:'white' }}>V</div>
+          <div>
+            <div style={{ fontSize:14, fontWeight:800 }}>
+              <span style={{ background:'linear-gradient(90deg,#38bdf8,#0ea5e9)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent' }}>Vaitty</span>
+              <span style={{ color:C.muted2, fontWeight:400, marginLeft:8, fontSize:12 }}>System Architecture</span>
+            </div>
+            <div style={{ fontSize:10, color:C.muted }}>Assistance as a Service — B2B2C Multi-tenant Platform</div>
+          </div>
+        </div>
+        <div style={{ textAlign:'right', fontSize:10, color:C.muted }}>
+          <div style={{ fontWeight:600, color:C.muted2 }}>FAST HOME SERVICES S.A.S</div>
+          <div>v4.2 · Abril 2026 · Confidencial</div>
+        </div>
+      </div>
+
+      {/* STICKY TAB BAR */}
+      <div className="tab-bar">
+        {TABS.map(t => (
+          <button key={t.id} className={`tab-btn${tab===t.id?' active':''}`} onClick={() => setTab(t.id)}>
+            <Ico name={t.icon} size={12} color={tab===t.id ? C.accent : '#64748b'}/>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* CONTENT — natural scroll, no height constraints */}
+      <div key={tab} className="tab-content">
+        {tab==="map"        && <PlatformMap/>}
+        {tab==="twoworlds"  && <TwoWorldsView/>}
+        {tab==="product"    && <ProductView/>}
+        {tab==="pricing"    && <PricingView/>}
+        {tab==="commission" && <CommissionView/>}
+        {tab==="lifecycle"  && <LifecycleView/>}
+        {tab==="rules"      && <RulesView/>}
+        {tab==="roadmap"    && <RoadmapView/>}
+        {tab==="canvas"     && <CanvasView/>}
+      </div>
+
+      {/* FOOTER */}
+      <div style={{ padding:'10px 20px', borderTop:`1px solid ${C.border}`, textAlign:'center', fontSize:10, color:'#1e293b' }}>
+        Vaitty Platform Architecture · Confidencial · v4.2 · Abril 2026
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<VaittySystemMap/>);
+</script>
+</body>
+</html>
