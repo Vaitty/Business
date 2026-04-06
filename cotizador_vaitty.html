@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cotizador Vaitty</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Inter', system-ui, sans-serif; background: #060d1a; color: #e2e8f0; }
+    ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    @keyframes fadeUp { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+    .fade { animation: fadeUp .2s ease; }
+    input[type=range] { -webkit-appearance: none; width: 100%; height: 5px; border-radius: 3px; background: #1e3a5f; outline: none; }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 15px; height: 15px; border-radius: 50%; background: #38bdf8; cursor: pointer; }
+    input[type=number] { background: #0a1628; border: 1px solid #1e3a5f; color: #e2e8f0; border-radius: 6px; padding: 5px 8px; font-size: 12px; width: 100%; outline: none; }
+    input[type=number]:focus { border-color: #38bdf8; }
+    .tab-active { background: #1e3a5f !important; color: #38bdf8 !important; }
+    .model-btn { background: #0a1628; border: 1px solid #1e3a5f; color: #64748b; border-radius: 7px; padding: 6px 12px; font-size: 10px; font-weight: 700; cursor: pointer; letter-spacing: .04em; transition: all .15s; }
+    .model-btn:hover { border-color: #38bdf855; color: #94a3b8; }
+    .model-btn.tab-active { border-color: #38bdf8; }
+    .card { background: #0a1628; border: 1px solid #1e293b; border-radius: 12px; padding: 14px; }
+    .big-num { font-size: 32px; font-weight: 900; line-height: 1; }
+    .label { font-size: 9px; font-weight: 700; letter-spacing: .08em; color: #64748b; text-transform: uppercase; }
+    .sub { font-size: 10px; color: #94a3b8; margin-top: 3px; }
+    .sep { border: none; border-top: 1px solid #1e293b; margin: 10px 0; }
+    .badge { display: inline-block; padding: 2px 7px; border-radius: 20px; font-size: 9px; font-weight: 700; }
+    .warn { background: #92400e33; color: #fbbf24; border: 1px solid #92400e; }
+    .ok   { background: #14532d33; color: #4ade80; border: 1px solid #14532d; }
+    .info { background: #1e3a5f33; color: #38bdf8; border: 1px solid #1e3a5f; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .sensitivity-table { width: 100%; border-collapse: collapse; font-size: 10px; }
+    .sensitivity-table th { color: #64748b; font-weight: 700; text-align: left; padding: 4px 8px; border-bottom: 1px solid #1e293b; }
+    .sensitivity-table td { padding: 4px 8px; border-bottom: 1px solid #0a1628; }
+    .sensitivity-table tr.highlight td { background: #1e3a5f33; color: #38bdf8; font-weight: 700; }
+    .cost-bar-wrap { display: flex; height: 8px; border-radius: 4px; overflow: hidden; gap: 1px; }
+    .tooltip { position: relative; cursor: help; }
+    .tooltip:hover::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: #1e293b; color: #e2e8f0; padding: 5px 8px; border-radius: 6px; font-size: 10px; white-space: nowrap; z-index: 99; pointer-events: none; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useMemo } = React;
+
+const fmt = (n, dec=0) => isNaN(n)||!isFinite(n) ? '—' :
+  new Intl.NumberFormat('es-AR', { minimumFractionDigits:dec, maximumFractionDigits:dec }).format(n);
+const fmtPct = (n, dec=1) => isNaN(n)||!isFinite(n) ? '—' : fmt(n*100, dec) + '%';
+const fmtM = n => n >= 1e6 ? `$${fmt(n/1e6,2)}M` : n >= 1e3 ? `$${fmt(n/1e3,0)}K` : `$${fmt(n,0)}`;
+
+const BENCHMARKS = {
+  hogar:    { min:15, tip:80, max:400, uso:1.3 },
+  mascotas: { min:577, tip:1000, max:2800, uso:3.5 },
+  movilidad:{ min:30, tip:150, max:500, uso:0.7 },
+  personas: { min:25, tip:100, max:300, uso:1.0 },
+};
+
+function Slider({ label, val, min, max, step, onChange, suffix='', hint, color='#38bdf8' }) {
+  return (
+    <div style={{ marginBottom:12 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+        <span style={{ fontSize:10, color:'#94a3b8', fontWeight:600 }}>{label}
+          {hint && <span className="tooltip" data-tip={hint} style={{ marginLeft:4, color:'#334155' }}>ⓘ</span>}
+        </span>
+        <span style={{ fontSize:12, fontWeight:800, color }}>{fmt(val)}{suffix}</span>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={val}
+        onChange={e => onChange(Number(e.target.value))}
+        style={{ accentColor: color }}/>
+      <div style={{ display:'flex', justifyContent:'space-between', fontSize:8.5, color:'#334155', marginTop:2 }}>
+        <span>{fmt(min)}{suffix}</span><span>{fmt(max)}{suffix}</span>
+      </div>
+    </div>
+  );
+}
+
+function NInput({ label, val, onChange, prefix='$', suffix='', hint }) {
+  return (
+    <div style={{ marginBottom:10 }}>
+      <div style={{ fontSize:10, color:'#94a3b8', fontWeight:600, marginBottom:3 }}>
+        {label}
+        {hint && <span className="tooltip" data-tip={hint} style={{ marginLeft:4, color:'#334155' }}>ⓘ</span>}
+      </div>
+      <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+        {prefix && <span style={{ fontSize:11, color:'#64748b' }}>{prefix}</span>}
+        <input type="number" value={val} onChange={e => onChange(Number(e.target.value))}/>
+        {suffix && <span style={{ fontSize:11, color:'#64748b' }}>{suffix}</span>}
+      </div>
+    </div>
+  );
+}
+
+function BigResult({ label, value, sub, color='#38bdf8', badge }) {
+  return (
+    <div style={{ textAlign:'center', padding:'10px 8px' }}>
+      <div className="label">{label}</div>
+      <div className="big-num" style={{ color, margin:'6px 0 3px' }}>{value}</div>
+      {sub && <div className="sub">{sub}</div>}
+      {badge && <span className={`badge ${badge.type}`} style={{ marginTop:5 }}>{badge.text}</span>}
+    </div>
+  );
+}
+
+function CostBreakdown({ items }) {
+  const total = items.reduce((s,i) => s+i.val, 0);
+  return (
+    <div>
+      <div className="cost-bar-wrap" style={{ marginBottom:8 }}>
+        {items.map((it,i) => (
+          <div key={i} style={{ flex: it.val/total, background: it.color, borderRadius: i===0?'4px 0 0 4px':i===items.length-1?'0 4px 4px 0':0 }}/>
+        ))}
+      </div>
+      {items.map((it,i) => (
+        <div key={i} style={{ display:'flex', justifyContent:'space-between', fontSize:10, marginBottom:3 }}>
+          <span style={{ display:'flex', alignItems:'center', gap:5 }}>
+            <span style={{ width:8, height:8, borderRadius:2, background:it.color, display:'inline-block' }}/>
+            <span style={{ color:'#94a3b8' }}>{it.label}</span>
+          </span>
+          <span style={{ fontWeight:700, color:'#e2e8f0' }}>${fmt(it.val/1000,1)}K</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SensTable({ basePrecio, baseTasa, costoPorCapita, markup, impuestos, comisionCanal, tipo }) {
+  const rows = [0.5, 0.75, 1, 1.25, 1.5, 2].map(factor => {
+    const tasa = baseTasa * factor;
+    const precioAjustado = costoPorCapita * factor * markup * (1 + impuestos/100);
+    const precioFinal = tipo === 'standalone' ? precioAjustado / (1 - comisionCanal/100) : precioAjustado;
+    const margen = (precioAjustado - costoPorCapita*factor) / precioAjustado;
+    return { factor, tasa, precioFinal, margen, isBase: factor === 1 };
+  });
+  return (
+    <table className="sensitivity-table">
+      <thead>
+        <tr>
+          <th>Tasa de uso</th>
+          <th>Factor</th>
+          <th>Precio/cápita</th>
+          <th>Margen Vaitty</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r,i) => (
+          <tr key={i} className={r.isBase ? 'highlight' : ''}>
+            <td>{fmt(r.tasa,2)}%</td>
+            <td style={{ color: r.factor > 1 ? '#f87171' : r.factor < 1 ? '#4ade80' : '#38bdf8' }}>{r.factor}x</td>
+            <td>${fmt(r.precioFinal,0)}</td>
+            <td style={{ color: r.margen < 0.1 ? '#f87171' : r.margen > 0.3 ? '#4ade80' : '#fbbf24' }}>{fmtPct(r.margen)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function BenchmarkIndicator({ precio, vertical }) {
+  const b = BENCHMARKS[vertical];
+  if (!b) return null;
+  let status, text;
+  if (precio < b.min) { status = 'warn'; text = `Bajo rango (ref: $${b.min}–$${b.max})`; }
+  else if (precio > b.max) { status = 'warn'; text = `Sobre rango (ref: $${b.min}–$${b.max})`; }
+  else if (precio >= b.tip*0.8 && precio <= b.tip*1.2) { status = 'ok'; text = `En rango típico $${b.tip}`; }
+  else { status = 'info'; text = `Rango: $${b.min}–$${b.max} · Típico $${b.tip}`; }
+  return <span className={`badge ${status}`} style={{ marginLeft:8 }}>{text}</span>;
+}
+
+function App() {
+  const [tipo, setTipo] = useState('bundle');         // bundle | standalone
+  const [modeloSA, setModeloSA] = useState('comision'); // comision | markup
+  const [vertical, setVertical] = useState('hogar');
+  const [showAdv, setShowAdv] = useState(false);
+  const [inputs, setInputs] = useState({
+    capitas: 10000,
+    tasaUso: 1.3,
+    coberturaMedia: 34000,
+    markup: 5,
+    impuestos: 9,
+    comisionCanal: 55,
+    markupPartner: 30,
+    costoIT: 500,
+    costoFTE: 150000,
+    productividad: 200,
+    adminPct: 15,
+  });
+  const set = (k, v) => setInputs(p => ({ ...p, [k]: v }));
+
+  const r = useMemo(() => {
+    const { capitas, tasaUso, coberturaMedia, markup, impuestos, comisionCanal, markupPartner,
+            costoIT, costoFTE, productividad, adminPct } = inputs;
+    const t = tasaUso / 100;
+    const svcMes = capitas * t;
+    const cDir = svcMes * coberturaMedia;
+    const cIT  = svcMes * costoIT;
+    const cOp  = (svcMes / productividad) * costoFTE;
+    const cAdm = (cDir + cIT + cOp) * (adminPct / 100);
+    const cTot = cDir + cIT + cOp + cAdm;
+    const cPorCapita = cTot / capitas;
+    const precioBase = cPorCapita * markup;
+    const precioImp  = precioBase * (1 + impuestos / 100);
+    // Stand-alone comisión
+    const precioFinalComision = precioImp / (1 - comisionCanal / 100);
+    // Stand-alone markup partner
+    const precioFinalMarkup = precioImp * (1 + markupPartner / 100);
+    // Bundle price = precioImp (channel commission embedded in structure)
+    const precioBundle = precioImp;
+    // Final displayed price
+    const pFinal = tipo === 'bundle' ? precioBundle
+                 : modeloSA === 'comision' ? precioFinalComision
+                 : precioFinalMarkup;
+    const ingresoVaitty = tipo === 'bundle' ? precioBundle
+                         : modeloSA === 'comision' ? precioImp
+                         : precioImp; // markup: Vaitty siempre cobra precioImp
+    const facturacionMes = pFinal * capitas;
+    const ingresosVaitttyMes = ingresoVaitty * capitas;
+    const margenVaitty = (ingresosVaitttyMes - cTot) / ingresosVaitttyMes;
+    return {
+      svcMes, cDir, cIT, cOp, cAdm, cTot, cPorCapita,
+      precioBase, precioImp, pFinal,
+      facturacionMes, facturacionAnual: facturacionMes * 12,
+      ingresosVaitttyMes, ingresosVaitttyAnual: ingresosVaitttyMes * 12,
+      margenVaitty, gananciaVaitttyMes: ingresosVaitttyMes - cTot,
+    };
+  }, [inputs, tipo, modeloSA]);
+
+  const margenColor = r.margenVaitty < 0.1 ? '#f87171' : r.margenVaitty < 0.25 ? '#fbbf24' : '#4ade80';
+  const margenBadge = r.margenVaitty < 0.1 ? { type:'warn', text:'Margen bajo' }
+                     : r.margenVaitty > 0.4 ? { type:'ok', text:'Margen sólido' }
+                     : { type:'info', text:'Margen moderado' };
+
+  return (
+    <div style={{ minHeight:'100vh' }}>
+      {/* HEADER */}
+      <div style={{ position:'sticky', top:0, zIndex:100, background:'#060d1a', borderBottom:'1px solid #1e293b', padding:'10px 20px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <div style={{ width:32, height:32, borderRadius:9, background:'linear-gradient(135deg,#0ea5e9,#38bdf8)', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:900, fontSize:14, color:'white' }}>V</div>
+          <div>
+            <span style={{ fontWeight:900, fontSize:14, background:'linear-gradient(90deg,#38bdf8,#0ea5e9)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent' }}>Vaitty</span>
+            <span style={{ color:'#64748b', fontSize:12, marginLeft:8 }}>Cotizador · v1.0</span>
+          </div>
+        </div>
+        <div style={{ display:'flex', gap:6 }}>
+          {[['bundle','Bundle'],['standalone','Stand-alone']].map(([id,lab]) => (
+            <button key={id} className={`model-btn${tipo===id?' tab-active':''}`} onClick={() => setTipo(id)}>{lab}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* MAIN */}
+      <div style={{ display:'grid', gridTemplateColumns:'340px 1fr', gap:16, padding:20, maxWidth:1100, margin:'0 auto' }}>
+
+        {/* LEFT: INPUTS */}
+        <div>
+          <div className="card" style={{ marginBottom:12 }}>
+            <div style={{ fontSize:10, fontWeight:800, color:'#64748b', letterSpacing:'.06em', marginBottom:12 }}>PARÁMETROS BASE</div>
+
+            <Slider label="Capitas" val={inputs.capitas} min={500} max={500000} step={500}
+              onChange={v => set('capitas',v)} hint="Número de beneficiarios cubiertos"/>
+            <Slider label="Tasa de uso mensual" val={inputs.tasaUso} min={0.1} max={6} step={0.1}
+              onChange={v => set('tasaUso',v)} suffix="%" color="#a78bfa"
+              hint={`Hogar ≈1.3% · Mascotas ≈2-5% · Movilidad ≈0.5-1%`}/>
+            <NInput label="Cobertura media por evento" val={inputs.coberturaMedia}
+              onChange={v => set('coberturaMedia',v)}
+              hint="Ticket promedio que Vaitty paga por servicio ejecutado"/>
+            <Slider label="Markup comercial" val={inputs.markup} min={1} max={15} step={0.5}
+              onChange={v => set('markup',v)} suffix="x" color="#f97316"
+              hint="Multiplicador sobre el costo cápita. Default del modelo: 5x"/>
+          </div>
+
+          {tipo === 'standalone' && (
+            <div className="card fade" style={{ marginBottom:12 }}>
+              <div style={{ fontSize:10, fontWeight:800, color:'#64748b', letterSpacing:'.06em', marginBottom:10 }}>MODELO STAND-ALONE</div>
+              <div style={{ display:'flex', gap:6, marginBottom:10 }}>
+                {[['comision','% Comisión'],['markup','Markup partner']].map(([id,lab]) => (
+                  <button key={id} className={`model-btn${modeloSA===id?' tab-active':''}`} onClick={() => setModeloSA(id)} style={{ flex:1 }}>{lab}</button>
+                ))}
+              </div>
+              {modeloSA === 'comision'
+                ? <Slider label="Comisión del canal" val={inputs.comisionCanal} min={5} max={55} step={1}
+                    onChange={v => set('comisionCanal',v)} suffix="%" color="#f59e0b"
+                    hint="Máx 55%. Precio final = Precio base Vaitty ÷ (1 − % comisión)"/>
+                : <Slider label="Markup del partner %" val={inputs.markupPartner} min={0} max={200} step={5}
+                    onChange={v => set('markupPartner',v)} suffix="%" color="#f59e0b"
+                    hint="El partner revende con este margen sobre el precio base de Vaitty"/>
+              }
+              {modeloSA === 'comision' && inputs.comisionCanal > 55 && (
+                <div style={{ fontSize:10, color:'#f87171', marginTop:4 }}>⚠ Comisión supera el límite de 55%</div>
+              )}
+            </div>
+          )}
+
+          <div className="card" style={{ marginBottom:12 }}>
+            <button onClick={() => setShowAdv(p => !p)} style={{ background:'none', border:'none', color:'#64748b', fontSize:10, cursor:'pointer', fontWeight:700, letterSpacing:'.06em', display:'flex', alignItems:'center', gap:5, padding:0 }}>
+              {showAdv ? '▾' : '▸'} PARÁMETROS AVANZADOS
+            </button>
+            {showAdv && (
+              <div className="fade" style={{ marginTop:10 }}>
+                <NInput label="Impuestos directos %" val={inputs.impuestos} onChange={v => set('impuestos',v)} prefix="" suffix="%"/>
+                <NInput label="Costo IT por servicio" val={inputs.costoIT} onChange={v => set('costoIT',v)}/>
+                <NInput label="Costo FTE operación / mes" val={inputs.costoFTE} onChange={v => set('costoFTE',v)}/>
+                <NInput label="Productividad FTE (svc/mes)" val={inputs.productividad} onChange={v => set('productividad',v)} prefix=""/>
+                <NInput label="Overhead admin %" val={inputs.adminPct} onChange={v => set('adminPct',v)} prefix="" suffix="%"/>
+              </div>
+            )}
+          </div>
+
+          <div className="card">
+            <div style={{ fontSize:10, fontWeight:800, color:'#64748b', letterSpacing:'.06em', marginBottom:8 }}>REFERENCIA DE MERCADO</div>
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:8 }}>
+              {Object.entries(BENCHMARKS).map(([k,v]) => (
+                <button key={k} className={`model-btn${vertical===k?' tab-active':''}`} onClick={() => setVertical(k)} style={{ textTransform:'capitalize' }}>{k}</button>
+              ))}
+            </div>
+            {BENCHMARKS[vertical] && (
+              <div style={{ fontSize:10, color:'#94a3b8', lineHeight:1.7 }}>
+                <div>Mín: <strong style={{color:'#e2e8f0'}}>${BENCHMARKS[vertical].min}</strong> · Típico: <strong style={{color:'#38bdf8'}}>${BENCHMARKS[vertical].tip}</strong> · Premium: <strong style={{color:'#e2e8f0'}}>${BENCHMARKS[vertical].max}</strong></div>
+                <div>Tasa de uso ref: <strong style={{color:'#a78bfa'}}>{BENCHMARKS[vertical].uso}%</strong></div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* RIGHT: RESULTS */}
+        <div>
+          {/* MAIN PRICE */}
+          <div className="card" style={{ marginBottom:12, background:'#080f1c' }}>
+            <div className={`grid${tipo==='standalone'?'3':'2'}`}>
+              <BigResult
+                label={tipo==='bundle' ? 'Precio per cápita (bundle)' : modeloSA==='comision' ? 'Precio base Vaitty / cápita' : 'Precio base Vaitty / cápita'}
+                value={`$${fmt(r.precioImp,0)}`}
+                sub="lo que cobra Vaitty al partner"
+                color="#38bdf8"
+                badge={<BenchmarkIndicator precio={r.precioImp} vertical={vertical}/>}
+              />
+              {tipo === 'standalone' && (
+                <BigResult
+                  label={modeloSA==='comision' ? 'Precio final al cliente' : 'Precio sugerido de reventa'}
+                  value={`$${fmt(r.pFinal,0)}`}
+                  sub={modeloSA==='comision' ? `incluye ${inputs.comisionCanal}% comisión` : `markup ${inputs.markupPartner}% del partner`}
+                  color="#f97316"
+                />
+              )}
+              <BigResult
+                label="Margen neto Vaitty"
+                value={fmtPct(r.margenVaitty)}
+                sub={`$${fmt(r.gananciaVaitttyMes/inputs.capitas,0)}/cápita/mes`}
+                color={margenColor}
+                badge={margenBadge}
+              />
+            </div>
+          </div>
+
+          {/* REVENUE TABLE */}
+          <div className="grid2" style={{ marginBottom:12 }}>
+            <div className="card">
+              <div className="label" style={{ marginBottom:8 }}>FACTURACIÓN</div>
+              {[
+                ['Mensual al partner', fmtM(r.facturacionMes)],
+                ['Anual al partner', fmtM(r.facturacionAnual)],
+                ['Ingresos Vaitty / mes', fmtM(r.ingresosVaitttyMes)],
+                ['Ingresos Vaitty / año', fmtM(r.ingresosVaitttyAnual)],
+              ].map(([l,v],i) => (
+                <div key={i} style={{ display:'flex', justifyContent:'space-between', fontSize:11, padding:'4px 0', borderBottom:'1px solid #0a1628' }}>
+                  <span style={{ color:'#94a3b8' }}>{l}</span>
+                  <span style={{ fontWeight:700, color:'#e2e8f0' }}>{v}</span>
+                </div>
+              ))}
+            </div>
+            <div className="card">
+              <div className="label" style={{ marginBottom:8 }}>OPERACIÓN / MES</div>
+              {[
+                ['Servicios ejecutados', `${fmt(r.svcMes,0)} svc`],
+                ['Costo directo (cobertura)', fmtM(r.cDir)],
+                ['Costo IT', fmtM(r.cIT)],
+                ['Costo operación (FTEs)', fmtM(r.cOp)],
+                ['Overhead admin', fmtM(r.cAdm)],
+              ].map(([l,v],i) => (
+                <div key={i} style={{ display:'flex', justifyContent:'space-between', fontSize:11, padding:'4px 0', borderBottom:'1px solid #0a1628' }}>
+                  <span style={{ color:'#94a3b8' }}>{l}</span>
+                  <span style={{ fontWeight:700, color:'#e2e8f0' }}>{v}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* COST BREAKDOWN */}
+          <div className="card" style={{ marginBottom:12 }}>
+            <div className="label" style={{ marginBottom:10 }}>BREAKDOWN DE COSTOS · TOTAL {fmtM(r.cTot)}/mes</div>
+            <CostBreakdown items={[
+              { label:'Cobertura directa', val:r.cDir, color:'#f87171' },
+              { label:'IT (por servicio)', val:r.cIT,  color:'#f59e0b' },
+              { label:'Operación (FTEs)', val:r.cOp,  color:'#a78bfa' },
+              { label:'Admin / overhead',  val:r.cAdm, color:'#38bdf8' },
+            ]}/>
+          </div>
+
+          {/* SENSITIVITY TABLE */}
+          <div className="card">
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+              <div className="label">SENSIBILIDAD POR TASA DE USO</div>
+              <span className="badge info">Modelo {tipo==='bundle'?'Bundle':'Stand-alone'} — fila azul = escenario actual</span>
+            </div>
+            <SensTable
+              basePrecio={r.precioImp}
+              baseTasa={inputs.tasaUso}
+              costoPorCapita={r.cPorCapita}
+              markup={inputs.markup}
+              impuestos={inputs.impuestos}
+              comisionCanal={inputs.comisionCanal}
+              tipo={tipo}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
