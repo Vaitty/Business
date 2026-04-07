@@ -1490,29 +1490,6 @@ function CanvasView() {
         ))}
       </div>
 
-      {/* Business Model Summary */}
-      <div style={{ marginTop:20, background:'#0f172a', border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
-        <div style={{ fontSize:13, fontWeight:700, color:'#f8fafc', marginBottom:14 }}>📊 Modelos de precio por tipo de partner</div>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:10 }}>
-          {[
-            { modelo:'Per Cápita Flat', riesgo:'Alto', partners:'Qualia, Galicia, RUS, AON', desc:'Ingreso predecible, exposición a alta siniestralidad', color:'#ef4444' },
-            { modelo:'Per Cápita Escalones', riesgo:'Nulo', partners:'BBVA', desc:'A mayor uso, mayor cobro. Riesgo cero para Vaitty', color:'#10b981' },
-            { modelo:'Por Evento', riesgo:'Nulo', partners:'Allianz, Zurich, Hipotecario', desc:'Solo se cobra cuando hay servicio ejecutado', color:'#10b981' },
-            { modelo:'TPA Standard', riesgo:'Compartido', partners:'SAI, Qualia Servicios', desc:'Fee admin 20-25% + costo servicios + profit 50/50 neto', color:'#f59e0b' },
-            { modelo:'GAREX', riesgo:'Acotado', partners:'Hipotecario', desc:'4-6% del valor del bien; spread entre retail y seguro', color:'#06b6d4' },
-            { modelo:'Stand-alone / Markup', riesgo:'Bajo', partners:'Retail / Financieras', desc:'Precio base Vaitty × markup partner; comisión máx 55%', color:'#8b5cf6' },
-          ].map((m,i) => (
-            <div key={i} style={{ background:`${m.color}0c`, border:`1px solid ${m.color}33`, borderRadius:8, padding:12 }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
-                <div style={{ fontSize:10, fontWeight:800, color:m.color }}>{m.modelo}</div>
-                <span style={{ fontSize:8, padding:'2px 6px', borderRadius:10, background:`${m.color}22`, color:m.color, fontWeight:700 }}>Riesgo: {m.riesgo}</span>
-              </div>
-              <div style={{ fontSize:9, color:'#94a3b8', marginBottom:4 }}><span style={{ color:'#cbd5e1', fontWeight:600 }}>Partners: </span>{m.partners}</div>
-              <div style={{ fontSize:9, color:C.muted, lineHeight:1.5 }}>{m.desc}</div>
-            </div>
-          ))}
-        </div>
-      </div>
 
       {/* Verticales y Cobertura */}
       <div style={{ marginTop:12, display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:10 }}>
