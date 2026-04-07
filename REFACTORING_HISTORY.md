@@ -93,17 +93,64 @@ Documentación oficial de hitos, refactorizaciones y cambios arquitectónicos de
 
 ---
 
-## REFACTORING #2 — Código Python (Pendiente)
+## REFACTORING #2 — Código Python
 
-**Fecha**: 2026-04-06 (próximo)
-**Objetivo**: Sincronizar `system_prompt.py` con `CLAUDE.md`
-**Estimado**: 1 hora
+**Fecha**: 2026-04-06
+**Iniciador**: Nadir Donemberg (via Claude - Cowork)
+**Razón**: Sincronizar `system_prompt.py` (prompt del agente Mati) con `CLAUDE.md` (reglas de negocio vigentes) para evitar inconsistencias en cotizaciones
+**Estado**: ✅ COMPLETADO
 
-### Cambios Planeados
-- [ ] Actualizar URLs rapihogar → vaitty en system_prompt.py
-- [ ] Sincronizar árbol de diseño de producto
-- [ ] Consolidar servicios con precio fijo
-- [ ] Verificar reglas de negocio vigentes
+### Cambios Realizados
+
+#### 2.1 URLs Revisadas
+```
+✅ Verificado: partners.vaitty.com.ar (ya estaba actualizado)
+   No había referencias a partners.rapihogar.com.ar
+```
+
+#### 2.2 Modelo de Cobertura "Escalones" Agregado
+```
+✅ Agregado: Sección ### ESCALONES en system_prompt.py (después de TRADICIONAL)
+   Ubicación: Líneas 59-67 (aproximadas)
+
+   Documentación incluye:
+   - Cuándo se usa (productos con alta frecuencia potencial, ej. Mascotas/BBVA)
+   - Mecánica (precio aumenta linealmente con tasa de uso)
+   - Ventaja: Riesgo cero para Vaitty (el partner paga por uso real)
+   - Nota: Modelo especial, no es típico en productos estándar
+```
+
+**Por qué fue necesario**:
+- CLAUDE.md documenta 3 modelos de cobertura: WALLET, TRADICIONAL, ESCALONES
+- system_prompt.py solo tenía WALLET y TRADICIONAL
+- El agente Mati podía encontrar referencias a Escalones en la documentación pero no sabía cómo presentarlos al partner
+- Ahora el prompt del agente está completo y sincronizado
+
+#### 2.3 Comparación Adicional
+```
+✅ Verificado: Servicios con precio fijo ($25.000 Telemedicina/Televeterinaria)
+   Ambos documentos tienen la información sincronizada
+
+✅ Verificado: Árbol de diseño de producto (5 pasos)
+   Ambos documentos tienen la información sincronizada
+
+✅ Verificado: Reglas de negocio clave
+   Mascotas/Movilidad como productos independientes — confirmado en ambos
+```
+
+### Impacto
+
+| Aspecto | Antes | Después | Beneficio |
+|---------|-------|---------|-----------|
+| Modelos de cobertura documentados | 2/3 | 3/3 | Agente completo |
+| Sincronización system_prompt ↔ CLAUDE.md | Parcial | Completa | Cotizaciones consistentes |
+| Capacidad de Mati de explicar Escalones | ❌ | ✅ | Puede ofrecer opción a BBVA-type partners |
+| Riesgo de usar reglas viejas | Medio | Bajo | Prompt actualizado |
+
+### Próximos Pasos (Fase 2 - Extra)
+- [ ] Agregar más ejemplos de Escalones en el prompt del agente (opcional)
+- [ ] Documentar en CLAUDE.md la lógica de cálculo de Escalones (opcional)
+- [ ] Referenciar REFACTORING_HISTORY.md en system_prompt.py como comentario (opcional)
 
 ---
 
