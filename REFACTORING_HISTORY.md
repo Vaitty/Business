@@ -230,13 +230,51 @@ docs/_REFERENCE/
 | Claridad de actualización | "Dónde encaja esto?" | Está claro dónde va | +300% claridad |
 | Usabilidad | ⭐⭐ | ⭐⭐⭐⭐ | Mucho mejor |
 
-### Próximos Pasos (Completitud)
+### Módulos Adicionales Creados (Extra)
 
-Módulos adicionales pendientes (no bloqueadores):
-- [ ] OPERATIVO.md — SLAs, exclusiones, flujos
-- [ ] SERVICIOS_DETALLE.md — Alcances completos por servicio
-- [ ] PARTNERS.md — Lista y estrategias por partner
-- [ ] CONTRATOS.md — T&Cs base, Anexos, estructura legal
+**Después de evaluar necesidad de completitud, agregamos 3 módulos más**:
+
+```
+✅ 05_OPERATIVO.md
+   - SLAs (80% llamadas <20seg, emergencias con celeridad)
+   - Exclusiones generales y específicas
+   - Flujos: Prestación directa, Reintegro, Siniestro
+   - Obligaciones del beneficiario
+   - Flujo financiero: Proceso de transacción → Pago prestador
+
+✅ 06_PARTNERS.md
+   - 15 partners documentados (9 activos, 6 en evaluación/proceso)
+   - Tablas por tipo: Aseguradoras, Bancos, Financieras, Especialistas
+   - Patrones de comportamiento por segmento
+   - Oportunidades identificadas (Supervielle, Meridional, etc.)
+
+✅ 07_CONTRATOS.md
+   - Datos legales (CUIT, domicilio, cuenta bancaria)
+   - Estructura de contrato tipo (Carta Oferta + Anexos A/I/II/III)
+   - Proceso de contratación (6 pasos)
+   - Sistema de Addendas para nuevos productos
+   - Checklist de contrato nuevo (10 items)
+```
+
+### Completitud Actual
+
+| Módulo | Estado | Valor |
+|--------|--------|-------|
+| 01_IDENTIDAD | ✅ | Corporativo |
+| 02_VERTICALES | ✅ | Servicios |
+| 03_PRODUCTOS | ✅ | Diseño |
+| 04_COTIZADOR | ✅ | Pricing |
+| 05_OPERATIVO | ✅ | SLAs/Flujos |
+| 06_PARTNERS | ✅ | Comercial |
+| 07_CONTRATOS | ✅ | Legal |
+| INDEX | ✅ | Navegación |
+
+**Completitud: 7/10 módulos core (70%)**
+
+### Próximos Pasos (Opcional)
+
+Módulos adicionales para completitud total (no bloqueadores):
+- [ ] SERVICIOS_DETALLE.md — Alcances por servicio (Gas, Plomería, etc.)
 - [ ] TECNOLOGIA.md — Infraestructura, agentes, código
 - [ ] ARQUITECTURA.md — Bounded contexts, modelo financiero
 - [ ] BITACORA_SESIONES.md — Histórico de decisiones y cambios
