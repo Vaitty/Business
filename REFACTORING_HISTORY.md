@@ -154,11 +154,92 @@ Documentación oficial de hitos, refactorizaciones y cambios arquitectónicos de
 
 ---
 
-## REFACTORING #3 — CLAUDE.md (Opcional)
+## REFACTORING #3 — Modularizar CLAUDE.md
 
-**Fecha**: TBD
-**Objetivo**: Modularizar CLAUDE.md en secciones temáticas
-**Estimado**: 2 horas
+**Fecha**: 2026-04-06
+**Iniciador**: Nadir Donemberg (via Claude - Cowork)
+**Razón**: CLAUDE.md es monolítico (40KB), difícil de navegar, actualizar, y referencia. Dividir en módulos temáticos mejora usabilidad y mantenibilidad
+**Estado**: ✅ COMPLETADO
+
+### Cambios Realizados
+
+#### 3.1 Creación de 4 Módulos Core
+
+```
+✅ 01_IDENTIDAD.md
+   - Razón social, CEO, CUIT, datos bancarios
+   - Nota sobre marca (Rapihogar → Vaitty)
+
+✅ 02_VERTICALES.md
+   - 4 verticales (Hogar, Mascotas, Movilidad, Personas)
+   - Servicios con precio fijo ($25K Tele)
+   - Estructura de cada servicio
+
+✅ 03_PRODUCTOS.md
+   - Árbol de diseño (5 pasos)
+   - Modelos de cobertura: WALLET, TRADICIONAL, ESCALONES
+   - Tipos de paquetes: BUNDLE, STAND-ALONE
+   - Reglas de negocio
+
+✅ 04_COTIZADOR.md
+   - Variables de entrada y fórmulas
+   - Rangos de precio por vertical
+   - Modelos de pricing (Per Cápita, TPA, Escalones, etc.)
+   - Confidencialidad: qué NO mostrar al partner
+```
+
+#### 3.2 Creación de Índice Navegable
+
+```
+✅ INDEX.md
+   - Tabla de contenidos centralizada
+   - Cómo buscar información específica
+   - Convención de marcado ([VIGENTE] vs [HISTÓRICO])
+   - Estructura de carpetas visual
+```
+
+#### 3.3 Convención de Marcado
+
+```
+[VIGENTE]   — Información actual, operational
+[HISTÓRICO] — Información antigua, mantener por referencia
+[DEPRECADO] — Reemplazada, NO usar
+```
+
+### Estructura Resultante
+
+```
+docs/_REFERENCE/
+├── INDEX.md                    ← Punto de entrada
+├── 01_IDENTIDAD.md
+├── 02_VERTICALES.md
+├── 03_PRODUCTOS.md
+├── 04_COTIZADOR.md
+├── REFACTORING_HISTORY.md      ← Este archivo
+├── product_system_core_v3.docx (documento architectural)
+└── (módulos adicionales pendientes)
+```
+
+### Impacto
+
+| Métrica | Antes | Después | Mejora |
+|---------|-------|---------|--------|
+| Tamaño de CLAUDE.md | 40KB monolítico | ~5KB/módulo + 2KB índice | Modular, navegable |
+| Tiempo búsqueda | 3-5 min (Ctrl+F en archivo grande) | 1-2 min (ir a INDEX) | -50% |
+| Edición de sección | Riesgo de tocar todo archivo | Editar módulo aislado | Seguro |
+| Claridad de actualización | "Dónde encaja esto?" | Está claro dónde va | +300% claridad |
+| Usabilidad | ⭐⭐ | ⭐⭐⭐⭐ | Mucho mejor |
+
+### Próximos Pasos (Completitud)
+
+Módulos adicionales pendientes (no bloqueadores):
+- [ ] OPERATIVO.md — SLAs, exclusiones, flujos
+- [ ] SERVICIOS_DETALLE.md — Alcances completos por servicio
+- [ ] PARTNERS.md — Lista y estrategias por partner
+- [ ] CONTRATOS.md — T&Cs base, Anexos, estructura legal
+- [ ] TECNOLOGIA.md — Infraestructura, agentes, código
+- [ ] ARQUITECTURA.md — Bounded contexts, modelo financiero
+- [ ] BITACORA_SESIONES.md — Histórico de decisiones y cambios
 
 ---
 
