@@ -16,12 +16,12 @@
 - **[04_COTIZADOR.md](04_COTIZADOR.md)** — Lógica de cotización, variables, fórmulas, rangos de precio, modelos de pricing
 
 ### Operativo
-- **OPERATIVO.md** *(próximo)* — SLAs, exclusiones, flujos de prestación directa/reintegro, obligaciones del beneficiario
+- **[05_OPERATIVO.md](05_OPERATIVO.md)** — SLAs, exclusiones, flujos (directa/reintegro), obligaciones beneficiario, flujo financiero
 - **SERVICIOS_DETALLE.md** *(próximo)* — Alcances completos por servicio (Gas, Plomería, Cerrajería, etc.)
 
 ### Comercial y Partners
-- **PARTNERS.md** *(próximo)* — Lista de partners actuales, patrones por tipo (aseguradoras/bancos/retail), estrategias
-- **CONTRATOS.md** *(próximo)* — Datos legales, T&Cs base, Anexos I/II/III, estructura de contrato tipo
+- **[06_PARTNERS.md](06_PARTNERS.md)** — Lista de partners actuales (15 documentados), patrones por tipo, oportunidades
+- **[07_CONTRATOS.md](07_CONTRATOS.md)** — Datos legales, estructura T&Cs, Anexos, checklist, organización de archivos
 
 ### Técnico
 - **TECNOLOGIA.md** *(próximo)* — Infraestructura, agentes (Mati Caballero), servicios webhook, bases de datos
