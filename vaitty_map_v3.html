@@ -1490,6 +1490,29 @@ function CanvasView() {
         ))}
       </div>
 
+      {/* Business Model Summary */}
+      <div style={{ marginTop:20, background:'#0f172a', border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
+        <div style={{ fontSize:13, fontWeight:700, color:'#f8fafc', marginBottom:14 }}>📊 Modelos de precio por tipo de partner</div>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:10 }}>
+          {[
+            { modelo:'Per Cápita Flat', riesgo:'Alto', partners:'Qualia, Galicia, RUS, AON', desc:'Ingreso predecible, exposición a alta siniestralidad', color:'#ef4444' },
+            { modelo:'Per Cápita Escalones', riesgo:'Nulo', partners:'BBVA', desc:'A mayor uso, mayor cobro. Riesgo cero para Vaitty', color:'#10b981' },
+            { modelo:'Por Evento', riesgo:'Nulo', partners:'Allianz, Zurich, Hipotecario', desc:'Solo se cobra cuando hay servicio ejecutado', color:'#10b981' },
+            { modelo:'TPA Standard', riesgo:'Compartido', partners:'SAI, Qualia Servicios', desc:'Fee admin 20-25% + costo servicios + profit 50/50 neto', color:'#f59e0b' },
+            { modelo:'GAREX', riesgo:'Acotado', partners:'Hipotecario', desc:'4-6% del valor del bien; spread entre retail y seguro', color:'#06b6d4' },
+            { modelo:'Stand-alone / Markup', riesgo:'Bajo', partners:'Retail / Financieras', desc:'Precio base Vaitty × markup partner; comisión máx 55%', color:'#8b5cf6' },
+          ].map((m,i) => (
+            <div key={i} style={{ background:`${m.color}0c`, border:`1px solid ${m.color}33`, borderRadius:8, padding:12 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+                <div style={{ fontSize:10, fontWeight:800, color:m.color }}>{m.modelo}</div>
+                <span style={{ fontSize:8, padding:'2px 6px', borderRadius:10, background:`${m.color}22`, color:m.color, fontWeight:700 }}>Riesgo: {m.riesgo}</span>
+              </div>
+              <div style={{ fontSize:9, color:'#94a3b8', marginBottom:4 }}><span style={{ color:'#cbd5e1', fontWeight:600 }}>Partners: </span>{m.partners}</div>
+              <div style={{ fontSize:9, color:C.muted, lineHeight:1.5 }}>{m.desc}</div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       {/* Verticales y Cobertura */}
       <div style={{ marginTop:12, display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:10 }}>
@@ -1525,6 +1548,83 @@ const TABS = [
   { id:"roadmap",    icon:"TrendingUp", label:"Roadmap"     },
   { id:"canvas",     icon:"LayoutGrid", label:"BMC"         },
 ];
+
+/* ══════════ LOGIN GATE ══════════ */
+function LoginGate({ children }) {
+  const [authenticated, setAuthenticated] = useState(false);
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+
+  const handleLogin = (e) => {
+    e.preventDefault();
+    if (password === "vaitty2026") {
+      setAuthenticated(true);
+      sessionStorage.setItem("vaitty_auth", "true");
+    } else {
+      setError("Contraseña incorrecta");
+      setPassword("");
+    }
+  };
+
+  if (authenticated) return children;
+
+  return (
+    <div style={{ minHeight:'100vh', background:'#060d1a', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'-apple-system, BlinkMacSystemFont, Inter, Segoe UI, system-ui, sans-serif' }}>
+      <div style={{ textAlign:'center', padding:'40px', borderRadius:16, background:'#0f172a', border:'1px solid #1e293b', maxWidth:400, width:'90%', boxShadow:'0 20px 60px rgba(0,0,0,0.5)' }}>
+        <div style={{ fontSize:24, fontWeight:900, marginBottom:8, background:'linear-gradient(90deg,#38bdf8,#0ea5e9)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent' }}>Vaitty</div>
+        <div style={{ fontSize:12, color:'#64748b', marginBottom:24 }}>System Architecture · v4.2</div>
+
+        <form onSubmit={handleLogin} style={{ display:'flex', flexDirection:'column', gap:12 }}>
+          <div>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => { setPassword(e.target.value); setError(""); }}
+              placeholder="Ingresá la contraseña"
+              style={{
+                width:'100%',
+                padding:'10px 12px',
+                borderRadius:8,
+                border:'1px solid #334155',
+                background:'#1e293b',
+                color:'#e2e8f0',
+                fontSize:14,
+                fontFamily:'inherit',
+                outline:'none',
+                boxSizing:'border-box'
+              }}
+              onFocus={(e) => e.target.style.borderColor = '#38bdf8'}
+              onBlur={(e) => e.target.style.borderColor = '#334155'}
+            />
+          </div>
+          {error && <div style={{ fontSize:12, color:'#ef4444', fontWeight:600 }}>⚠️ {error}</div>}
+          <button
+            type="submit"
+            style={{
+              padding:'10px 16px',
+              borderRadius:8,
+              border:'none',
+              background:'linear-gradient(135deg,#0ea5e9,#38bdf8)',
+              color:'white',
+              fontWeight:700,
+              fontSize:14,
+              cursor:'pointer',
+              transition:'all 0.2s'
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.9'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+          >
+            Acceder
+          </button>
+        </form>
+
+        <div style={{ fontSize:10, color:'#475569', marginTop:20, borderTop:'1px solid #334155', paddingTop:20 }}>
+          FAST HOME SERVICES S.A.S · Confidencial · Abril 2026
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /* ══════════ MAIN APP ══════════ */
 function VaittySystemMap() {
@@ -1582,7 +1682,7 @@ function VaittySystemMap() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<VaittySystemMap/>);
+ReactDOM.createRoot(document.getElementById('root')).render(<LoginGate><VaittySystemMap/></LoginGate>);
 </script>
 </body>
 </html>
